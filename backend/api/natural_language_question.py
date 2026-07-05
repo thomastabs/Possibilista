@@ -28,6 +28,8 @@ class NaturalLanguageQuestionResponse(BaseModel):
     out_of_scope: bool
     suggestion: str
     session_id: str
+    documents: list[dict[str, str]]
+    no_source: bool
 
 
 @router.post("/natural-language-question", response_model=NaturalLanguageQuestionResponse)

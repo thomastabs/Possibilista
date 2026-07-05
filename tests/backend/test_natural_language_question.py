@@ -21,6 +21,8 @@ def test_answer_natural_language_question_clear_question():
     assert response["clarification_options"] == []
     assert "official secondary education guidance" in response["answer"].lower()
     assert response["suggestion"] == ""
+    assert response["documents"]
+    assert response["no_source"] is False
 
 
 def test_answer_natural_language_question_ambiguous_question():
@@ -51,6 +53,25 @@ def test_answer_natural_language_question_out_of_scope_question():
     assert response["out_of_scope"] is True
     assert response["clarification_options"] == []
     assert "human advisor" in response["suggestion"].lower()
+    assert response["documents"] == []
+    assert response["no_source"] is True
+
+
+def test_answer_natural_language_question_marks_no_source_when_documents_missing():
+    async def empty_retriever(_question: str):
+        return []
+
+    response = asyncio.run(
+        answer_natural_language_question(
+            "What are the available secondary tracks?",
+            "session-4",
+            document_retriever=empty_retriever,
+        )
+    )
+
+    assert response["no_source"] is True
+    assert response["documents"] == []
+    assert "could not find an official document" in response["answer"].lower()
 
 
 def test_answer_natural_language_question_rejects_empty_question():
@@ -86,6 +107,8 @@ def test_post_natural_language_question_endpoint_returns_clear_answer():
     assert payload["clarification_needed"] is False
     assert payload["out_of_scope"] is False
     assert "official secondary education guidance" in payload["answer"].lower()
+    assert payload["documents"]
+    assert payload["no_source"] is False
 
 
 def test_post_natural_language_question_endpoint_returns_clarification_options():

@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import inspect
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class OfficialDocument(TypedDict):
+    title: str
+    content: str
+    source_url: str
 
 _SECONDARY_CONTEXT_TERMS = {
     "secondary",
@@ -45,6 +53,45 @@ _OUT_OF_SCOPE_SUGGESTION = (
     "This assistant only covers Portuguese secondary education tracks. Please consult "
     "a human advisor or school guidance counselor."
 )
+
+_OFFICIAL_DOCUMENT_CATALOG: list[dict[str, Any]] = [
+    {
+        "title": "Scientific-humanistic Courses Guidance",
+        "content": (
+            "Scientific-humanistic courses focus on sciences, languages, and humanities and "
+            "prepare students primarily for higher education."
+        ),
+        "source_url": "https://www.dge.mec.pt/cursos-cientifico-humanisticos",
+        "keywords": {"scientific", "humanistic", "sciences", "humanities", "higher education"},
+    },
+    {
+        "title": "Professional Courses Guidance",
+        "content": (
+            "Professional courses combine general education with technical and workplace training "
+            "and lead to a secondary qualification and professional preparation."
+        ),
+        "source_url": "https://www.dge.mec.pt/cursos-profissionais",
+        "keywords": {"professional", "technical", "workplace", "qualification", "training"},
+    },
+    {
+        "title": "Specialized Artistic Courses Guidance",
+        "content": (
+            "Specialized artistic courses focus on artistic development and practical training in "
+            "art-related disciplines."
+        ),
+        "source_url": "https://www.dge.mec.pt/cursos-artisticos-especializados",
+        "keywords": {"artistic", "arts", "art", "specialized", "specialised"},
+    },
+    {
+        "title": "Secondary Education Overview",
+        "content": (
+            "The official secondary education overview summarizes the main pathways available to "
+            "students and explains how to choose among them."
+        ),
+        "source_url": "https://www.dge.mec.pt/ensino-secundario",
+        "keywords": {"overview", "available tracks", "what tracks", "secondary education", "choose"},
+    },
+]
 
 
 def _normalize_question(question: str) -> str:
@@ -102,9 +149,76 @@ def _build_clarification_options(question: str) -> list[str]:
     return _CLARIFICATION_OPTIONS.copy()
 
 
+def _document_matches(question: str, document: dict[str, Any]) -> bool:
+    normalized = question.casefold()
+    keywords = document["keywords"]
+    return any(keyword.casefold() in normalized for keyword in keywords)
+
+
+def retrieve_official_documents(question: str, limit: int = 3) -> list[OfficialDocument]:
+    """Return a small set of official documents that match the student question."""
+
+    logger.info(
+        "Retrieving official documents for natural language question.",
+        extra={"question": question, "limit": limit},
+    )
+
+    candidate_documents = [
+        document
+        for document in _OFFICIAL_DOCUMENT_CATALOG
+        if _document_matches(question, document)
+    ]
+
+    if not candidate_documents and _contains_any(
+        question,
+        {"available tracks", "what tracks", "secondary education", "secondary tracks"},
+    ):
+        candidate_documents = _OFFICIAL_DOCUMENT_CATALOG.copy()
+
+    selected_documents = candidate_documents[:limit]
+
+    logger.info(
+        "Official document retrieval completed.",
+        extra={
+            "question": question,
+            "documents_count": len(selected_documents),
+        },
+    )
+
+    return [
+        {
+            "title": document["title"],
+            "content": document["content"],
+            "source_url": document["source_url"],
+        }
+        for document in selected_documents
+    ]
+
+
+async def _resolve_official_documents(
+    question: str,
+    document_retriever: Callable[[str], Sequence[OfficialDocument] | Awaitable[Sequence[OfficialDocument]]] | None,
+) -> list[OfficialDocument]:
+    retriever = document_retriever or retrieve_official_documents
+    documents = retriever(question)
+    if inspect.isawaitable(documents):
+        resolved = await documents
+    else:
+        resolved = documents
+    return [
+        {
+            "title": document["title"],
+            "content": document["content"],
+            "source_url": document["source_url"],
+        }
+        for document in resolved
+    ]
+
+
 async def answer_natural_language_question(
     question: str,
     session_id: str,
+    document_retriever: Callable[[str], Sequence[OfficialDocument] | Awaitable[Sequence[OfficialDocument]]] | None = None,
 ) -> dict[str, Any]:
     """Return a structured response for a student question."""
 
@@ -132,6 +246,8 @@ async def answer_natural_language_question(
             "out_of_scope": True,
             "suggestion": _OUT_OF_SCOPE_SUGGESTION,
             "session_id": session_id,
+            "documents": [],
+            "no_source": True,
         }
 
     if classification == "ambiguous":
@@ -153,12 +269,29 @@ async def answer_natural_language_question(
             "out_of_scope": False,
             "suggestion": "Select the track or topic you want me to clarify.",
             "session_id": session_id,
+            "documents": [],
+            "no_source": True,
         }
 
-    answer = _build_clear_answer(normalized_question)
+    documents = await _resolve_official_documents(normalized_question, document_retriever)
+    no_source = len(documents) == 0
+
+    if no_source:
+        answer = (
+            "I can answer your question at a high level, but I could not find an official document "
+            "that directly matches it right now."
+        )
+    else:
+        document_titles = ", ".join(f"'{document['title']}'" for document in documents)
+        answer = (
+            f"According to the official documents {document_titles}, "
+            "the main secondary education pathways are scientific-humanistic, professional, "
+            "and specialized artistic tracks."
+        )
+
     logger.info(
         "Natural language question classified as clear.",
-        extra={"session_id": session_id},
+        extra={"session_id": session_id, "documents_count": len(documents), "no_source": no_source},
     )
     return {
         "answer": answer,
@@ -167,4 +300,6 @@ async def answer_natural_language_question(
         "out_of_scope": False,
         "suggestion": "",
         "session_id": session_id,
+        "documents": documents,
+        "no_source": no_source,
     }
