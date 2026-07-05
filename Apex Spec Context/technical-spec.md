@@ -7,7 +7,7 @@
 
 **Locked at:** 2026-07-05 12:08 UTC
 
-**Stories:** #9389359, #9389360, #9389361, #9389363, #9389364, #9389365, #9389366, #9389368, #9389369, #9389370, #9389371, #9389372, #9389373, #9389374, #9389375, #9389376, #9389377, #9389378, #9389379, #9389380, #9389381, #9389382, #9389383, #9389384, #9389385, #9389386, #9389387, #9389388, #9389389, #9389390, #9389391, #9389392, #9389393, #9389394, #9389395, #9389396, #9389397, #9389398, #9389399
+**Stories:** #9389359, #9389360, #9389361, #9389362, #9389363, #9389364, #9389365, #9389366, #9389368, #9389369, #9389370, #9389371, #9389372, #9389373, #9389374, #9389375, #9389376, #9389377, #9389378, #9389379, #9389380, #9389381, #9389382, #9389383, #9389384, #9389385, #9389386, #9389387, #9389388, #9389389, #9389390, #9389391, #9389392, #9389393, #9389394, #9389395, #9389396, #9389397, #9389398, #9389399
 
 ### Endpoints
 
@@ -59,6 +59,9 @@
 - `GET /api/v1/family/guidance-outcomes` — present guidance recommendations with source-grounded explanations or pending message (Story 9389397) · auth: bearer · in: student_session_id:str · out: recommendations:list[{text:str, source:str}], pending:bool
 - `GET /api/v1/family/fact-interpretation-distinction` — separate facts from interpretations in explanations or indicate unavailable info (Story 9389398) · auth: bearer · in: explanation_id:str · out: facts:list[str], interpretations:list[str], unavailable_info:bool
 - `GET /api/v1/family/institutional-confirmation-notification` — alert family about special cases needing institutional confirmation or no alert (Story 9389399) · auth: bearer · in: student_session_id:str · out: alert_present:bool, alert_message:str
+
+### Conversational Guidance Interface
+- POST /api/v1/chat/natural-language-question — handle natural language questions about secondary tracks, request clarifications, or provide out-of-scope notices (Story 9389362) · auth: bearer · in: question:str, session_id:str · out: answer:str, clarification_needed:bool, clarification_options:list[str], out_of_scope:bool, suggestion:str, session_id:str
 
 ### Data Model
 

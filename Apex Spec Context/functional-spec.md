@@ -174,6 +174,33 @@ Feature: Interpret Student Intent Accurately
     And the system addresses each part clearly
 ```
 
+### Story 9389362: Natural Language Question Guidance
+
+**Status:** Gherkin Locked  
+**Locked at:** 2026-07-05 14:36 UTC
+
+```gherkin
+Feature: Natural Language Question Guidance
+
+  Scenario: Ask a clear question about secondary tracks
+    Given the student is seeking information about secondary education tracks
+    When the student asks a clear question about available secondary tracks
+    Then the system provides a clear and structured answer
+    And the answer references official documents
+
+  Scenario: Ask an ambiguous question
+    Given the student is seeking information about secondary education
+    When the student asks a vague or ambiguous question
+    Then the system requests clarification from the student
+    And the system offers options to narrow down the query
+
+  Scenario: Ask a question outside the system's scope
+    Given the student is seeking information outside the system's coverage
+    When the student asks a question about topics not covered by the system
+    Then the system explains it cannot provide an answer
+    And the system suggests consulting a human advisor
+```
+
 ## Epic 361771: Secondary Education Track Analysis
 
 ### Story 9389369: Secondary Education Track Information

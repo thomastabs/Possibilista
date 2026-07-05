@@ -68,3 +68,9 @@
 - Exploration Path Explanation Screen → Guidance Outcomes Explanation Screen → Fact and Interpretation Distinction Screen → Institutional Confirmation Notification Screen (Stories: 9389396, 9389397, 9389398, 9389399)
 
 - Document Indexing Status Screen → Document Retrieval Screen → Answer Fact vs Interpretation Screen → Index Update Screen (Stories: 9389382, 9389384, 9389386, 9389388, 9389389, 9389390, 9389391)
+
+### Conversational Guidance Interface
+- **Natural Language Question Guidance Screen** [Story 9389362]: Interface to handle natural language questions about secondary tracks, including clarifications and out-of-scope notices. Actions: ask question, receive structured answer, clarify question, receive out-of-scope guidance.
+
+### Navigation Paths
+- Conversational Chat Screen → Natural Language Question Guidance Screen → Conversational Chat Screen
