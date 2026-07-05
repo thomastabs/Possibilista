@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from backend.api.profiling import (
     _parse_strengths_weaknesses_payload,
+    get_student_profile_summary,
     recommend_compatible_secondary_tracks,
     submit_student_strengths_weaknesses,
     upsert_student_strength_weakness,
@@ -30,7 +31,8 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, existing_profile=None, tracks=None):
+    def __init__(self, interests=None, existing_profile=None, tracks=None):
+        self.interests = interests or []
         self.existing_profile = existing_profile
         self.tracks = tracks or []
         self.records = []
@@ -41,6 +43,8 @@ class DummyDB:
     async def execute(self, statement):
         self.executed.append(statement)
         entity = statement.column_descriptions[0]["entity"]
+        if getattr(entity, "__name__", "") == "StudentInterest":
+            return DummyResult(self.interests)
         if getattr(entity, "__name__", "") == "StudentStrengthWeakness":
             return DummyResult(self.existing_profile)
         return DummyResult(self.tracks)
@@ -197,6 +201,37 @@ def test_submit_student_strengths_weaknesses_full_response():
     assert str(db.tracks[0].id) in response["message"]
     assert db.committed is True
     assert len(db.records) == 1
+
+
+def test_get_student_profile_summary_returns_recommendations():
+    db = DummyDB(
+        interests=[SimpleNamespace(interest="Math")],
+        existing_profile=SimpleNamespace(
+            strengths=["Math"],
+            weaknesses=["History"],
+            partial=False,
+        ),
+        tracks=[make_track("Science Track", ["Math", "Science"])],
+    )
+    session = SimpleNamespace(id=uuid4(), school_year=9)
+
+    summary = asyncio.run(get_student_profile_summary(db, session))
+
+    assert summary["status"] == "success"
+    assert "Math" in summary["profile_summary"]
+    assert "academic_strengths_weaknesses" not in summary["missing_fields"]
+    assert summary["recommendations"] == [str(db.tracks[0].id)]
+
+
+def test_get_student_profile_summary_returns_clarification_when_missing_strengths():
+    db = DummyDB(interests=[SimpleNamespace(interest="Math")], tracks=[])
+    session = SimpleNamespace(id=uuid4(), school_year=9)
+
+    summary = asyncio.run(get_student_profile_summary(db, session))
+
+    assert summary["status"] == "success"
+    assert "academic_strengths_weaknesses" in summary["missing_fields"]
+    assert summary["recommendations"][0].startswith("Clarification needed:")
 
 
 def test_upsert_student_strength_weakness_rejects_non_ninth_grade():

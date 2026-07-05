@@ -338,6 +338,79 @@ async def upsert_student_strength_weakness(
         ) from exc
 
 
+async def get_student_profile_summary(
+    db: AsyncSession,
+    student_session: StudentSession,
+) -> dict[str, Any]:
+    try:
+        interests_result = await db.execute(
+            select(StudentInterest).where(StudentInterest.session_id == student_session.id)
+        )
+        interests = interests_result.scalars().all()
+
+        strengths_result = await db.execute(
+            select(StudentStrengthWeakness).where(
+                StudentStrengthWeakness.session_id == student_session.id,
+            )
+        )
+        strengths_record = strengths_result.scalar_one_or_none()
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load profile summary data.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load profile summary.",
+        ) from exc
+
+    summary_parts: list[str] = []
+    missing_fields: list[str] = []
+
+    if interests:
+        selected_interests = [item.interest for item in interests if item.interest]
+        summary_parts.append(f"Interests captured: {', '.join(selected_interests)}.")
+    else:
+        missing_fields.append("interests")
+
+    if strengths_record is not None:
+        summary_parts.append(
+            "Academic strengths and weaknesses recorded "
+            f"({len(strengths_record.strengths)} strengths, {len(strengths_record.weaknesses)} weaknesses)."
+        )
+    else:
+        missing_fields.append("academic_strengths_weaknesses")
+
+    if not summary_parts:
+        summary_parts.append("Profile summary is not yet complete.")
+
+    recommendations: list[str] = []
+    if strengths_record is not None:
+        recommendations = await recommend_compatible_secondary_tracks(
+            db,
+            strengths_record.strengths,
+            strengths_record.weaknesses,
+            strengths_record.partial,
+        )
+    else:
+        recommendations = [
+            "Clarification needed: add academic strengths and weaknesses to receive secondary-track recommendations.",
+        ]
+
+    logger.info(
+        "Profile summary loaded.",
+        extra={
+            "session_id": str(student_session.id),
+            "missing_fields_count": len(missing_fields),
+            "recommendations_count": len(recommendations),
+        },
+    )
+
+    return {
+        "status": "success",
+        "profile_summary": " ".join(summary_parts),
+        "missing_fields": missing_fields,
+        "recommendations": recommendations,
+    }
+
+
 @router.post("/interests")
 async def submit_student_interests(
     request: Request,
@@ -420,3 +493,12 @@ async def submit_student_strengths_weaknesses(
         message = f"Academic strengths and weaknesses saved successfully. Recommended tracks: {', '.join(recommendations)}"
 
     return {"status": "success", "message": message}
+
+
+@router.get("/summary")
+async def get_profile_summary_endpoint(
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+    student_session: StudentSession = Depends(get_current_student_session),
+) -> dict[str, Any]:
+    return await get_student_profile_summary(db, student_session)
