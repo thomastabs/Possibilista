@@ -6,22 +6,33 @@ from fastapi import HTTPException
 
 from backend.api.profiling import (
     _parse_strengths_weaknesses_payload,
+    recommend_compatible_secondary_tracks,
     submit_student_strengths_weaknesses,
     upsert_student_strength_weakness,
 )
 
 
 class DummyResult:
-    def __init__(self, record):
-        self._record = record
+    def __init__(self, records):
+        self._records = records
 
     def scalar_one_or_none(self):
-        return self._record
+        return self._records
+
+    def scalars(self):
+        return self
+
+    def unique(self):
+        return self
+
+    def all(self):
+        return self._records
 
 
 class DummyDB:
-    def __init__(self, existing=None):
-        self.existing = existing
+    def __init__(self, existing_profile=None, tracks=None):
+        self.existing_profile = existing_profile
+        self.tracks = tracks or []
         self.records = []
         self.committed = False
         self.rolled_back = False
@@ -29,7 +40,10 @@ class DummyDB:
 
     async def execute(self, statement):
         self.executed.append(statement)
-        return DummyResult(self.existing)
+        entity = statement.column_descriptions[0]["entity"]
+        if getattr(entity, "__name__", "") == "StudentStrengthWeakness":
+            return DummyResult(self.existing_profile)
+        return DummyResult(self.tracks)
 
     def add(self, record):
         self.records.append(record)
@@ -47,6 +61,15 @@ class DummyRequest:
 
     async def json(self):
         return self._payload
+
+
+def make_track(name, disciplines, description=""):
+    return SimpleNamespace(
+        id=uuid4(),
+        name=name,
+        description=description,
+        disciplines=[SimpleNamespace(discipline_name=value) for value in disciplines],
+    )
 
 
 def test_parse_strengths_weaknesses_payload_valid_full():
@@ -86,6 +109,33 @@ def test_parse_strengths_weaknesses_payload_missing_fields():
         raise AssertionError("Expected HTTPException for missing fields.")
 
 
+def test_recommend_compatible_secondary_tracks_returns_ids_for_matches():
+    db = DummyDB(
+        tracks=[
+            make_track("Science Track", ["Math", "Science"]),
+            make_track("Arts Track", ["Art"]),
+        ]
+    )
+
+    recommendations = asyncio.run(
+        recommend_compatible_secondary_tracks(db, ["Math", "Science"], ["History"], False)
+    )
+
+    assert len(recommendations) == 1
+    assert recommendations[0] == str(db.tracks[0].id)
+
+
+def test_recommend_compatible_secondary_tracks_requests_clarification_for_sparse_partial_input():
+    db = DummyDB(tracks=[make_track("Science Track", ["Math", "Science"])])
+
+    recommendations = asyncio.run(
+        recommend_compatible_secondary_tracks(db, [], [], True)
+    )
+
+    assert len(recommendations) == 1
+    assert recommendations[0].startswith("Clarification needed:")
+
+
 def test_upsert_student_strength_weakness_creates_record():
     db = DummyDB()
     session = SimpleNamespace(id=uuid4(), school_year=9)
@@ -104,7 +154,7 @@ def test_upsert_student_strength_weakness_creates_record():
 
 def test_upsert_student_strength_weakness_updates_record():
     existing = SimpleNamespace(strengths=["Math"], weaknesses=["History"], partial=False)
-    db = DummyDB(existing=existing)
+    db = DummyDB(existing_profile=existing)
     session = SimpleNamespace(id=uuid4(), school_year=9)
 
     record = asyncio.run(
@@ -120,7 +170,7 @@ def test_upsert_student_strength_weakness_updates_record():
 
 
 def test_submit_student_strengths_weaknesses_partial_response():
-    db = DummyDB()
+    db = DummyDB(tracks=[make_track("Science Track", ["Math", "Science"])])
     session = SimpleNamespace(id=uuid4(), school_year=9)
     request = DummyRequest({"strengths": [], "weaknesses": [], "partial": True})
 
@@ -129,12 +179,12 @@ def test_submit_student_strengths_weaknesses_partial_response():
     )
 
     assert response["status"] == "success"
-    assert "partial input" in response["message"]
+    assert "clarification" in response["message"].lower()
     assert db.committed is True
 
 
 def test_submit_student_strengths_weaknesses_full_response():
-    db = DummyDB()
+    db = DummyDB(tracks=[make_track("Science Track", ["Math", "Science"])])
     session = SimpleNamespace(id=uuid4(), school_year=9)
     request = DummyRequest({"strengths": ["Math"], "weaknesses": ["History"], "partial": False})
 
@@ -143,7 +193,8 @@ def test_submit_student_strengths_weaknesses_full_response():
     )
 
     assert response["status"] == "success"
-    assert "successfully" in response["message"]
+    assert "recommended tracks" in response["message"].lower()
+    assert str(db.tracks[0].id) in response["message"]
     assert db.committed is True
     assert len(db.records) == 1
 

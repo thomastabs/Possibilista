@@ -10,9 +10,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.models.student_interest import StudentInterest
 from backend.models.student_session import StudentSession
+from backend.models.secondary_track import SecondaryTrack
 from backend.models.student_strength_weakness import StudentStrengthWeakness
 
 logger = logging.getLogger(__name__)
@@ -162,10 +164,14 @@ def _parse_strengths_weaknesses_payload(payload: Any) -> tuple[list[str], list[s
 
 
 async def recommend_compatible_secondary_tracks(
+    db: AsyncSession,
     strengths: list[str],
     weaknesses: list[str],
     partial: bool,
 ) -> list[str]:
+    normalized_strengths = {item.casefold() for item in strengths}
+    normalized_weaknesses = {item.casefold() for item in weaknesses}
+
     logger.info(
         "Recommendation hook invoked for academic strengths/weaknesses.",
         extra={
@@ -174,7 +180,72 @@ async def recommend_compatible_secondary_tracks(
             "partial": partial,
         },
     )
-    return []
+
+    if partial and not normalized_strengths and not normalized_weaknesses:
+        logger.info(
+            "Recommendation request needs clarification due to sparse partial input.",
+            extra={"partial": partial},
+        )
+        return [
+            "Clarification needed: please provide more detail about your strongest and weakest disciplines.",
+        ]
+
+    try:
+        result = await db.execute(
+            select(SecondaryTrack).options(selectinload(SecondaryTrack.disciplines))
+        )
+        tracks = result.scalars().unique().all()
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load secondary tracks for recommendation.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to evaluate compatible secondary tracks.",
+        ) from exc
+
+    scored_tracks: list[tuple[int, SecondaryTrack]] = []
+    for track in tracks:
+        track_terms = {track.name.casefold()}
+        if track.description:
+            track_terms.update(track.description.casefold().split())
+        discipline_terms = {discipline.discipline_name.casefold() for discipline in track.disciplines}
+        all_terms = track_terms | discipline_terms
+
+        strength_matches = sum(1 for value in normalized_strengths if value in all_terms)
+        weakness_matches = sum(1 for value in normalized_weaknesses if value in all_terms)
+        score = (strength_matches * 3) - (weakness_matches * 2)
+
+        logger.info(
+            "Scored secondary track candidate.",
+            extra={
+                "track_id": str(track.id),
+                "track_name": track.name,
+                "strength_matches": strength_matches,
+                "weakness_matches": weakness_matches,
+                "score": score,
+            },
+        )
+
+        if score > 0:
+            scored_tracks.append((score, track))
+
+    scored_tracks.sort(key=lambda item: (-item[0], item[1].name.lower()))
+    recommended_ids = [str(track.id) for _, track in scored_tracks[:3]]
+
+    if recommended_ids:
+        if partial:
+            logger.info(
+                "Partial input produced limited secondary-track recommendations.",
+                extra={"recommended_count": len(recommended_ids)},
+            )
+        return recommended_ids
+
+    logger.info(
+        "No confident secondary-track recommendation could be made.",
+        extra={"partial": partial},
+    )
+    return [
+        "Clarification needed: the current strengths and weaknesses do not confidently match a secondary track.",
+    ]
 
 
 async def record_student_interests(
@@ -321,6 +392,7 @@ async def submit_student_strengths_weaknesses(
 
     record = await upsert_student_strength_weakness(db, student_session, strengths, weaknesses, partial)
     recommendations = await recommend_compatible_secondary_tracks(
+        db,
         record.strengths,
         record.weaknesses,
         record.partial,
@@ -334,9 +406,17 @@ async def submit_student_strengths_weaknesses(
         },
     )
 
-    if partial:
-        message = "Academic strengths and weaknesses saved with partial input."
+    if recommendations and recommendations[0].startswith("Clarification needed:"):
+        message = (
+            "Academic strengths and weaknesses saved, but more detail is needed before recommending tracks. "
+            f"{recommendations[0]}"
+        )
+    elif partial:
+        message = (
+            "Academic strengths and weaknesses saved with partial input. "
+            f"Limited recommendations: {', '.join(recommendations)}"
+        )
     else:
-        message = "Academic strengths and weaknesses saved successfully."
+        message = f"Academic strengths and weaknesses saved successfully. Recommended tracks: {', '.join(recommendations)}"
 
     return {"status": "success", "message": message}
