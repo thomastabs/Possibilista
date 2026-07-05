@@ -1,7 +1,7 @@
 """Student session ORM entity.
 
-This is a minimal anchor model so StudentInterest can establish a concrete
-many-to-one relationship in the current repo slice.
+This is a minimal anchor model so profiling entities can establish concrete
+many-to-one relationships in the current repo slice.
 """
 
 from __future__ import annotations
@@ -22,6 +22,10 @@ class StudentSession(Base):
     school_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     student_interests: Mapped[list["StudentInterest"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    student_strength_weaknesses: Mapped[list["StudentStrengthWeakness"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
     )
