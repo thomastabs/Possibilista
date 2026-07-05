@@ -10,6 +10,7 @@ type ProfileSummaryResponse = {
   status?: string;
   profile_summary?: string;
   missing_fields?: string[];
+  suggestions?: string[];
   recommendations?: string[];
   message?: string;
 };
@@ -25,7 +26,7 @@ export function ProfileSummaryScreen({
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<string>("");
   const [missingFields, setMissingFields] = useState<string[]>([]);
-  const [recommendations, setRecommendations] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -57,7 +58,7 @@ export function ProfileSummaryScreen({
 
         setSummary(data.profile_summary || "");
         setMissingFields(data.missing_fields || []);
-        setRecommendations(data.recommendations || []);
+        setSuggestions(data.suggestions || data.recommendations || []);
       } catch (loadError) {
         if (!active) {
           return;
@@ -104,33 +105,33 @@ export function ProfileSummaryScreen({
       {!loading && !error ? (
         <>
           <article className="profile-summary-screen__summary">
-            <h2>Summary</h2>
+            <h2>Profile summary</h2>
             <p>{summary || "No summary available yet."}</p>
           </article>
 
           <article className="profile-summary-screen__missing">
-            <h2>Missing information</h2>
+            <h2>Missing or incomplete inputs</h2>
             {missingFields.length > 0 ? (
-              <ul>
+              <ul aria-label="Missing profile inputs">
                 {missingFields.map((field) => (
                   <li key={field}>{field}</li>
                 ))}
               </ul>
             ) : (
-              <p>No missing fields.</p>
+              <p>All required inputs are available.</p>
             )}
           </article>
 
-          <article className="profile-summary-screen__recommendations">
-            <h2>Recommendations</h2>
-            {recommendations.length > 0 ? (
-              <ul>
-                {recommendations.map((item) => (
+          <article className="profile-summary-screen__suggestions">
+            <h2>Suggestions</h2>
+            {suggestions.length > 0 ? (
+              <ul aria-label="Profile suggestions">
+                {suggestions.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
             ) : (
-              <p>No recommendations available yet.</p>
+              <p>No suggestions available yet.</p>
             )}
           </article>
 

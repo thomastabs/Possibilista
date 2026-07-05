@@ -9,14 +9,30 @@ beforeEach(() => {
   (global as typeof globalThis).fetch = fetchMock as typeof fetch;
 });
 
-test("fetches and renders profile summary recommendations", async () => {
+test("shows loading state before the profile summary arrives", () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      status: "success",
+      profile_summary: "Profile summary text.",
+      missing_fields: [],
+      suggestions: [],
+    }),
+  });
+
+  render(<ProfileSummaryScreen bearerToken="token" />);
+
+  expect(screen.getByText("Loading profile summary...")).toBeInTheDocument();
+});
+
+test("fetches and renders profile summary suggestions", async () => {
   fetchMock.mockResolvedValue({
     ok: true,
     json: async () => ({
       status: "success",
       profile_summary: "Profile summary text.",
       missing_fields: ["motivations"],
-      recommendations: ["science-track", "arts-track"],
+      suggestions: ["Add motivations", "Add academic strengths"],
     }),
   });
 
@@ -25,25 +41,58 @@ test("fetches and renders profile summary recommendations", async () => {
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(screen.getByText("Profile summary text.")).toBeInTheDocument();
   expect(screen.getByText("motivations")).toBeInTheDocument();
-  expect(screen.getByText("science-track")).toBeInTheDocument();
-  expect(screen.getByText("arts-track")).toBeInTheDocument();
+  expect(screen.getByText("Add motivations")).toBeInTheDocument();
+  expect(screen.getByText("Add academic strengths")).toBeInTheDocument();
 });
 
-test("shows fallback when no recommendations are returned", async () => {
+test("falls back to recommendations when suggestions are not returned", async () => {
   fetchMock.mockResolvedValue({
     ok: true,
     json: async () => ({
       status: "success",
       profile_summary: "Profile summary text.",
       missing_fields: [],
-      recommendations: [],
+      recommendations: ["science-track", "arts-track"],
     }),
   });
 
   render(<ProfileSummaryScreen bearerToken="token" />);
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-  expect(screen.getByText("No recommendations available yet.")).toBeInTheDocument();
+  expect(screen.getByText("science-track")).toBeInTheDocument();
+  expect(screen.getByText("arts-track")).toBeInTheDocument();
+});
+
+test("shows fallback when no suggestions are returned", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      status: "success",
+      profile_summary: "Profile summary text.",
+      missing_fields: [],
+      suggestions: [],
+    }),
+  });
+
+  render(<ProfileSummaryScreen bearerToken="token" />);
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(screen.getByText("No suggestions available yet.")).toBeInTheDocument();
+  expect(screen.getByText("All required inputs are available.")).toBeInTheDocument();
+});
+
+test("shows an error when the backend request fails", async () => {
+  fetchMock.mockResolvedValue({
+    ok: false,
+    json: async () => ({
+      message: "Unable to load profile summary.",
+    }),
+  });
+
+  render(<ProfileSummaryScreen bearerToken="token" />);
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("alert")).toHaveTextContent("Unable to load profile summary.");
 });
 
 test("shows an auth error when no token is present", async () => {
