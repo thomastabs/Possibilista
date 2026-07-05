@@ -1,6 +1,10 @@
-"""FastAPI routers for Possibilista.
+"""FastAPI routers for Possibilista."""
 
-Profiling routes currently cover:
-- POST /api/v1/profiling/interests
-- POST /api/v1/profiling/strengths-weaknesses
-"""
+from fastapi import APIRouter
+
+from backend.api.natural_language_question import router as natural_language_question_router
+from backend.api.profiling import router as profiling_router
+
+router = APIRouter()
+router.include_router(profiling_router)
+router.include_router(natural_language_question_router)
