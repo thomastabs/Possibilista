@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from backend.models.student_interest import StudentInterest
 from backend.models.student_session import StudentSession
 from backend.models.secondary_track import SecondaryTrack
+from backend.models.student_motivation import StudentMotivation
 from backend.models.student_strength_weakness import StudentStrengthWeakness
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,54 @@ def _parse_interest_payload(payload: Any) -> tuple[list[str], bool]:
         )
 
     return cleaned_interests, skipped
+
+
+def _parse_motivation_payload(payload: Any) -> tuple[str | None, bool]:
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be a JSON object.",
+        )
+
+    if "motivations" not in payload or "declined" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fields 'motivations' and 'declined' are required.",
+        )
+
+    motivations = payload["motivations"]
+    declined = payload["declined"]
+
+    if not isinstance(declined, bool):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'declined' must be a boolean.",
+        )
+
+    if declined:
+        if motivations not in (None, "") and not isinstance(motivations, str):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Field 'motivations' must be a string when provided.",
+            )
+        if isinstance(motivations, str) and motivations.strip() == "":
+            motivations = None
+        return None, True
+
+    if not isinstance(motivations, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'motivations' must be a string.",
+        )
+
+    cleaned = motivations.strip()
+    if not cleaned:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Motivations cannot be empty when declined is false.",
+        )
+
+    return cleaned, False
 
 
 def _normalize_text_list_item(value: Any, field_name: str) -> str:
@@ -291,6 +340,46 @@ async def record_student_interests(
         ) from exc
 
     return len(records)
+
+
+async def upsert_student_motivation(
+    db: AsyncSession,
+    student_session: StudentSession,
+    motivations: str | None,
+    declined: bool,
+) -> StudentMotivation:
+    if student_session.school_year != 9:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only 9.º ano students can submit motivations.",
+        )
+
+    try:
+        result = await db.execute(
+            select(StudentMotivation).where(StudentMotivation.session_id == student_session.id)
+        )
+        record = result.scalar_one_or_none()
+
+        if record is None:
+            record = StudentMotivation(
+                session_id=student_session.id,
+                motivations=motivations,
+                declined=declined,
+            )
+            db.add(record)
+        else:
+            record.motivations = motivations
+            record.declined = declined
+
+        await db.commit()
+        return record
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Failed to persist student motivations.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save motivations.",
+        ) from exc
 
 
 async def upsert_student_strength_weakness(
@@ -491,6 +580,41 @@ async def submit_student_strengths_weaknesses(
         )
     else:
         message = f"Academic strengths and weaknesses saved successfully. Recommended tracks: {', '.join(recommendations)}"
+
+    return {"status": "success", "message": message}
+
+
+@router.post("/motivations")
+async def submit_student_motivations(
+    request: Request,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+    student_session: StudentSession = Depends(get_current_student_session),
+) -> dict[str, str]:
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be valid JSON.",
+        ) from exc
+
+    motivations, declined = _parse_motivation_payload(payload)
+    logger.info(
+        "Received motivations submission.",
+        extra={
+            "session_id": str(student_session.id),
+            "declined": declined,
+            "motivations_present": motivations is not None,
+        },
+    )
+
+    await upsert_student_motivation(db, student_session, motivations, declined)
+
+    if declined:
+        message = "Motivations declined and recorded."
+    else:
+        message = "Motivations saved successfully."
 
     return {"status": "success", "message": message}
 
