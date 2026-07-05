@@ -49,6 +49,22 @@ async def get_current_student_session(request: Request) -> StudentSession:
     return session
 
 
+async def resolve_persisted_student_session(
+    db: AsyncSession,
+    student_session: StudentSession,
+) -> StudentSession:
+    result = await db.execute(
+        select(StudentSession).where(StudentSession.id == student_session.id)
+    )
+    persisted_session = result.scalar_one_or_none()
+    if persisted_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student session was not found.",
+        )
+    return persisted_session
+
+
 def _normalize_interest(value: Any) -> str:
     if not isinstance(value, str):
         raise HTTPException(
@@ -599,8 +615,23 @@ async def submit_student_motivations(
 
 @router.get("/summary")
 async def get_profile_summary_endpoint(
+    request: Request,
     _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
     db: AsyncSession = Depends(get_db_session),
     student_session: StudentSession = Depends(get_current_student_session),
 ) -> dict[str, Any]:
-    return await get_student_profile_summary(db, student_session)
+    logger.info(
+        "Profile summary request received.",
+        extra={"session_id": str(student_session.id)},
+    )
+    persisted_session = await resolve_persisted_student_session(db, student_session)
+    response = await get_student_profile_summary(db, persisted_session)
+    logger.info(
+        "Profile summary response prepared.",
+        extra={
+            "session_id": str(persisted_session.id),
+            "missing_fields_count": len(response["missing_fields"]),
+            "suggestions_count": len(response["suggestions"]),
+        },
+    )
+    return response
