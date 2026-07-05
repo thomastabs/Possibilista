@@ -17,6 +17,7 @@ from backend.models.student_session import StudentSession
 from backend.models.secondary_track import SecondaryTrack
 from backend.models.student_motivation import StudentMotivation
 from backend.models.student_strength_weakness import StudentStrengthWeakness
+from backend.services.profile_summary import generate_profile_summary
 
 logger = logging.getLogger(__name__)
 
@@ -432,11 +433,7 @@ async def get_student_profile_summary(
     student_session: StudentSession,
 ) -> dict[str, Any]:
     try:
-        interests_result = await db.execute(
-            select(StudentInterest).where(StudentInterest.session_id == student_session.id)
-        )
-        interests = interests_result.scalars().all()
-
+        summary = await generate_profile_summary(db, str(student_session.id))
         strengths_result = await db.execute(
             select(StudentStrengthWeakness).where(
                 StudentStrengthWeakness.session_id == student_session.id,
@@ -450,26 +447,6 @@ async def get_student_profile_summary(
             detail="Unable to load profile summary.",
         ) from exc
 
-    summary_parts: list[str] = []
-    missing_fields: list[str] = []
-
-    if interests:
-        selected_interests = [item.interest for item in interests if item.interest]
-        summary_parts.append(f"Interests captured: {', '.join(selected_interests)}.")
-    else:
-        missing_fields.append("interests")
-
-    if strengths_record is not None:
-        summary_parts.append(
-            "Academic strengths and weaknesses recorded "
-            f"({len(strengths_record.strengths)} strengths, {len(strengths_record.weaknesses)} weaknesses)."
-        )
-    else:
-        missing_fields.append("academic_strengths_weaknesses")
-
-    if not summary_parts:
-        summary_parts.append("Profile summary is not yet complete.")
-
     recommendations: list[str] = []
     if strengths_record is not None:
         recommendations = await recommend_compatible_secondary_tracks(
@@ -478,7 +455,7 @@ async def get_student_profile_summary(
             strengths_record.weaknesses,
             strengths_record.partial,
         )
-    else:
+    elif summary["suggestions"]:
         recommendations = [
             "Clarification needed: add academic strengths and weaknesses to receive secondary-track recommendations.",
         ]
@@ -487,15 +464,16 @@ async def get_student_profile_summary(
         "Profile summary loaded.",
         extra={
             "session_id": str(student_session.id),
-            "missing_fields_count": len(missing_fields),
+            "missing_fields_count": len(summary["missing_fields"]),
             "recommendations_count": len(recommendations),
         },
     )
 
     return {
         "status": "success",
-        "profile_summary": " ".join(summary_parts),
-        "missing_fields": missing_fields,
+        "profile_summary": summary["profile_summary"],
+        "missing_fields": summary["missing_fields"],
+        "suggestions": summary["suggestions"],
         "recommendations": recommendations,
     }
 
