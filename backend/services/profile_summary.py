@@ -33,27 +33,50 @@ def _append_suggestion(suggestions: list[str], suggestion: str) -> None:
         suggestions.append(suggestion)
 
 
+async def fetch_student_interests(db: AsyncSession, session_id: str) -> list[StudentInterest]:
+    try:
+        result = await db.execute(
+            select(StudentInterest).where(
+                StudentInterest.session_id == session_id,
+                StudentInterest.skipped.is_(False),
+            )
+        )
+        return [item for item in result.scalars().all() if not getattr(item, "skipped", False)]
+    except SQLAlchemyError:
+        logger.exception("Failed to load student interests for profile summary.")
+        return []
+
+
+async def fetch_student_motivation(db: AsyncSession, session_id: str) -> StudentMotivation | None:
+    try:
+        result = await db.execute(
+            select(StudentMotivation).where(StudentMotivation.session_id == session_id)
+        )
+        return result.scalar_one_or_none()
+    except SQLAlchemyError:
+        logger.exception("Failed to load student motivation for profile summary.")
+        return None
+
+
+async def fetch_student_strengths_weaknesses(
+    db: AsyncSession, session_id: str
+) -> StudentStrengthWeakness | None:
+    try:
+        result = await db.execute(
+            select(StudentStrengthWeakness).where(StudentStrengthWeakness.session_id == session_id)
+        )
+        return result.scalar_one_or_none()
+    except SQLAlchemyError:
+        logger.exception("Failed to load student strengths/weaknesses for profile summary.")
+        return None
+
+
 async def generate_profile_summary(db: AsyncSession, session_id: str) -> dict[str, Any]:
     """Aggregate student inputs into a summary plus completion suggestions."""
 
-    try:
-        interests_result = await db.execute(
-            select(StudentInterest).where(StudentInterest.session_id == session_id)
-        )
-        interests = interests_result.scalars().all()
-
-        motivations_result = await db.execute(
-            select(StudentMotivation).where(StudentMotivation.session_id == session_id)
-        )
-        motivation = motivations_result.scalar_one_or_none()
-
-        strengths_result = await db.execute(
-            select(StudentStrengthWeakness).where(StudentStrengthWeakness.session_id == session_id)
-        )
-        strengths_record = strengths_result.scalar_one_or_none()
-    except SQLAlchemyError as exc:
-        logger.exception("Failed to generate profile summary.")
-        raise
+    interests = await fetch_student_interests(db, session_id)
+    motivation = await fetch_student_motivation(db, session_id)
+    strengths_record = await fetch_student_strengths_weaknesses(db, session_id)
 
     summary_parts: list[str] = []
     missing_fields: list[str] = []
@@ -138,4 +161,3 @@ async def generate_profile_summary(db: AsyncSession, session_id: str) -> dict[st
         "missing_fields": missing_fields,
         "suggestions": suggestions,
     }
-

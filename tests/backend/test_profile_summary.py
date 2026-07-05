@@ -3,9 +3,15 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.profiling import get_profile_summary_endpoint
-from backend.services.profile_summary import generate_profile_summary
+from backend.services.profile_summary import (
+    fetch_student_interests,
+    fetch_student_motivation,
+    fetch_student_strengths_weaknesses,
+    generate_profile_summary,
+)
 
 
 class DummyResult:
@@ -45,6 +51,11 @@ class DummyDB:
         if getattr(entity, "__name__", "") == "StudentStrengthWeakness":
             return DummyResult(self.strengths)
         return DummyResult([])
+
+
+class FailingDB:
+    async def execute(self, statement):
+        raise SQLAlchemyError("boom")
 
 
 def test_generate_profile_summary_complete_data():
@@ -87,6 +98,39 @@ def test_generate_profile_summary_missing_and_partial_data():
     assert "motivations" in summary["missing_fields"]
     assert "academic_strengths_weaknesses" in summary["missing_fields"]
     assert len(summary["suggestions"]) >= 3
+
+
+def test_fetch_helpers_return_defaults_on_database_error():
+    db = FailingDB()
+
+    interests = asyncio.run(fetch_student_interests(db, str(uuid4())))
+    motivation = asyncio.run(fetch_student_motivation(db, str(uuid4())))
+    strengths = asyncio.run(fetch_student_strengths_weaknesses(db, str(uuid4())))
+
+    assert interests == []
+    assert motivation is None
+    assert strengths is None
+
+
+def test_generate_profile_summary_ignores_skipped_interest_rows():
+    db = DummyDB(
+        interests=[
+            SimpleNamespace(interest="Math", skipped=False),
+            SimpleNamespace(interest=None, skipped=True),
+        ],
+        motivation=SimpleNamespace(motivations="I like helping people.", declined=False),
+        strengths=SimpleNamespace(
+            strengths=["Math"],
+            weaknesses=["History"],
+            partial=False,
+        ),
+    )
+
+    summary = asyncio.run(generate_profile_summary(db, str(uuid4())))
+
+    assert "Math" in summary["profile_summary"]
+    assert "skipped" not in summary["profile_summary"].lower()
+    assert summary["missing_fields"] == []
 
 
 def test_profiling_summary_endpoint_returns_complete_payload():
