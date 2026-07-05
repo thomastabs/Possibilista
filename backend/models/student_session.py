@@ -29,3 +29,8 @@ class StudentSession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    student_motivation: Mapped["StudentMotivation | None"] = relationship(
+        back_populates="session",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
