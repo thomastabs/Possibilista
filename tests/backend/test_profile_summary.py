@@ -74,6 +74,10 @@ def test_generate_profile_summary_complete_data():
     assert "Interests captured: Math." in summary["profile_summary"]
     assert "Motivations captured: I like helping people." in summary["profile_summary"]
     assert "Academic strengths: Math, Science. Academic weaknesses: History." in summary["profile_summary"]
+    assert set(summary) == {"profile_summary", "missing_fields", "suggestions"}
+    assert isinstance(summary["profile_summary"], str)
+    assert isinstance(summary["missing_fields"], list)
+    assert isinstance(summary["suggestions"], list)
     assert summary["missing_fields"] == []
     assert summary["suggestions"] == []
 
