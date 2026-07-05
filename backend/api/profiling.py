@@ -1,4 +1,4 @@
-"""Profiling endpoints for student interest collection."""
+"""Profiling endpoints for student interest and strengths/weakness collection."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.student_interest import StudentInterest
 from backend.models.student_session import StudentSession
+from backend.models.student_strength_weakness import StudentStrengthWeakness
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,84 @@ def _parse_interest_payload(payload: Any) -> tuple[list[str], bool]:
     return cleaned_interests, skipped
 
 
+def _normalize_text_list_item(value: Any, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Each item in '{field_name}' must be a string.",
+        )
+
+    cleaned = value.strip()
+    if not cleaned:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"'{field_name}' cannot contain empty values.",
+        )
+    return cleaned
+
+
+def _parse_strengths_weaknesses_payload(payload: Any) -> tuple[list[str], list[str], bool]:
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be a JSON object.",
+        )
+
+    required_fields = {"strengths", "weaknesses", "partial"}
+    if not required_fields.issubset(payload):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fields 'strengths', 'weaknesses', and 'partial' are required.",
+        )
+
+    strengths = payload["strengths"]
+    weaknesses = payload["weaknesses"]
+    partial = payload["partial"]
+
+    if not isinstance(partial, bool):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'partial' must be a boolean.",
+        )
+    if not isinstance(strengths, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'strengths' must be a list of strings.",
+        )
+    if not isinstance(weaknesses, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'weaknesses' must be a list of strings.",
+        )
+
+    cleaned_strengths = [_normalize_text_list_item(item, "strengths") for item in strengths]
+    cleaned_weaknesses = [_normalize_text_list_item(item, "weaknesses") for item in weaknesses]
+
+    if not partial and not cleaned_strengths and not cleaned_weaknesses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one strength or weakness is required when partial is false.",
+        )
+
+    return cleaned_strengths, cleaned_weaknesses, partial
+
+
+async def recommend_compatible_secondary_tracks(
+    strengths: list[str],
+    weaknesses: list[str],
+    partial: bool,
+) -> list[str]:
+    logger.info(
+        "Recommendation hook invoked for academic strengths/weaknesses.",
+        extra={
+            "strengths_count": len(strengths),
+            "weaknesses_count": len(weaknesses),
+            "partial": partial,
+        },
+    )
+    return []
+
+
 async def record_student_interests(
     db: AsyncSession,
     student_session: StudentSession,
@@ -142,6 +222,51 @@ async def record_student_interests(
     return len(records)
 
 
+async def upsert_student_strength_weakness(
+    db: AsyncSession,
+    student_session: StudentSession,
+    strengths: list[str],
+    weaknesses: list[str],
+    partial: bool,
+) -> StudentStrengthWeakness:
+    if student_session.school_year != 9:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only 9.º ano students can submit academic strengths and weaknesses.",
+        )
+
+    try:
+        result = await db.execute(
+            select(StudentStrengthWeakness).where(
+                StudentStrengthWeakness.session_id == student_session.id,
+            )
+        )
+        record = result.scalar_one_or_none()
+
+        if record is None:
+            record = StudentStrengthWeakness(
+                session_id=student_session.id,
+                strengths=strengths,
+                weaknesses=weaknesses,
+                partial=partial,
+            )
+            db.add(record)
+        else:
+            record.strengths = strengths
+            record.weaknesses = weaknesses
+            record.partial = partial
+
+        await db.commit()
+        return record
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Failed to persist student strengths and weaknesses.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save academic strengths and weaknesses.",
+        ) from exc
+
+
 @router.post("/interests")
 async def submit_student_interests(
     request: Request,
@@ -164,5 +289,54 @@ async def submit_student_interests(
         message = "Interest questions were skipped and the skip was recorded."
     else:
         message = f"Recorded {saved_count} student interest preference(s)."
+
+    return {"status": "success", "message": message}
+
+
+@router.post("/strengths-weaknesses")
+async def submit_student_strengths_weaknesses(
+    request: Request,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+    student_session: StudentSession = Depends(get_current_student_session),
+) -> dict[str, str]:
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be valid JSON.",
+        ) from exc
+
+    strengths, weaknesses, partial = _parse_strengths_weaknesses_payload(payload)
+    logger.info(
+        "Received academic strengths/weaknesses submission.",
+        extra={
+            "session_id": str(student_session.id),
+            "partial": partial,
+            "strengths_count": len(strengths),
+            "weaknesses_count": len(weaknesses),
+        },
+    )
+
+    record = await upsert_student_strength_weakness(db, student_session, strengths, weaknesses, partial)
+    recommendations = await recommend_compatible_secondary_tracks(
+        record.strengths,
+        record.weaknesses,
+        record.partial,
+    )
+
+    logger.info(
+        "Recommendation hook completed for academic strengths/weaknesses.",
+        extra={
+            "session_id": str(student_session.id),
+            "recommendations_count": len(recommendations),
+        },
+    )
+
+    if partial:
+        message = "Academic strengths and weaknesses saved with partial input."
+    else:
+        message = "Academic strengths and weaknesses saved successfully."
 
     return {"status": "success", "message": message}
