@@ -263,6 +263,32 @@ def test_post_chat_message_endpoint_marks_interpretation_answers_distinctly():
     assert "not a direct quote from official sources" in payload["answer"].lower()
 
 
+def test_post_chat_message_endpoint_breaks_down_a_compound_question_into_parts():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "message": (
+                "What are the professional tracks? "
+                "What are the specialized artistic tracks?"
+            ),
+            "session_id": str(session_id),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["answer"].startswith("1) ")
+    assert "2) " in payload["answer"]
+    assert any("Professional Courses Guidance" in fact for fact in payload["facts"])
+    assert any("Specialized Artistic Courses Guidance" in fact for fact in payload["facts"])
+    assert payload["insufficient_info"] is False
+
+
 def test_post_chat_message_endpoint_requires_bearer_authentication():
     client = _make_test_client(DummyDB(session=None))
 

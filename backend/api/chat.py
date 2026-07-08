@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.profiling import get_db_session
 from backend.models.chat_message import ChatMessage
 from backend.models.student_session import StudentSession
-from backend.services.chat_service import build_chat_response_with_context, get_last_chat_message
+from backend.services.chat_service import build_chat_response_for_message, get_last_chat_message
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ async def post_chat_message(
     previous_message = await get_last_chat_message(db, str(student_session.id))
 
     try:
-        response = build_chat_response_with_context(
+        response = build_chat_response_for_message(
             payload.message, str(student_session.id), previous_message
         )
     except ValueError as exc:
