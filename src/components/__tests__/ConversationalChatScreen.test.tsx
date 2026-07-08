@@ -123,6 +123,45 @@ test("shows an alert when human confirmation is required", async () => {
   ).toBeInTheDocument();
 });
 
+test("shows the confirmation advisory alongside facts and interpretations without hiding them", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer: "Based on general guidance, here is an interpretation about your special case.",
+      facts: ["Secondary Education Overview (https://www.dge.mec.pt/ensino-secundario): ..."],
+      interpretations: [
+        "This is an interpretation based on general guidance, not a direct quote from official sources.",
+      ],
+      insufficient_info: false,
+      requires_confirmation: true,
+      session_id: "session-8",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-8" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: { value: "My special case needs an exception — which track would you recommend?" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(
+    screen.getByText("Human or institutional confirmation is recommended for this answer."),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Facts")).toBeInTheDocument();
+  expect(screen.getByText("Interpretation")).toBeInTheDocument();
+  expect(
+    screen.getByText("Secondary Education Overview (https://www.dge.mec.pt/ensino-secundario): ..."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "This is an interpretation based on general guidance, not a direct quote from official sources.",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
+
 test("appends multiple turns to the chat history and clears the input", async () => {
   fetchMock
     .mockResolvedValueOnce({
