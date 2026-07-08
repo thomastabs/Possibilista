@@ -31,6 +31,26 @@ function nextTurnId(): string {
   return `turn-${turnIdCounter}`;
 }
 
+const ANSWER_PART_PATTERN = /^\d+\)\s/;
+
+/**
+ * A compound/multi-part question (Story 9389368) comes back as a single answer
+ * string numbered "1) ... 2) ...". Splits it into its parts for display; returns
+ * null for a straightforward single-part answer so it renders as plain text.
+ */
+function splitAnswerIntoParts(answer: string): string[] | null {
+  const parts = answer
+    .split(/(?=\d+\)\s)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length > 1 && parts.every((part) => ANSWER_PART_PATTERN.test(part))) {
+    return parts.map((part) => part.replace(ANSWER_PART_PATTERN, ""));
+  }
+
+  return null;
+}
+
 export function ConversationalChatScreen({
   bearerToken,
   sessionId,
@@ -128,14 +148,25 @@ export function ConversationalChatScreen({
       </header>
 
       <ol className="chat-screen__history">
-        {history.map((turn) => (
+        {history.map((turn) => {
+          const answerParts = splitAnswerIntoParts(turn.answer);
+
+          return (
           <li key={turn.id} className="chat-screen__turn">
             <p className="chat-screen__question">
               <strong>You:</strong> <span>{turn.question}</span>
             </p>
 
             <div className="chat-screen__answer">
-              <p>{turn.answer}</p>
+              {answerParts ? (
+                <ol className="chat-screen__answer-parts">
+                  {answerParts.map((part, index) => (
+                    <li key={index}>{part}</li>
+                  ))}
+                </ol>
+              ) : (
+                <p>{turn.answer}</p>
+              )}
 
               {turn.requires_confirmation ? (
                 <p role="alert" className="chat-screen__confirmation-alert">
@@ -172,7 +203,8 @@ export function ConversationalChatScreen({
               ) : null}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ol>
 
       <form onSubmit={submitMessage} className="chat-screen__form">

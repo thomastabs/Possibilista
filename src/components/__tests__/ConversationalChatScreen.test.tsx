@@ -37,6 +37,45 @@ test("sends a question and displays facts separated from interpretations", async
   expect(screen.queryByText("Interpretation")).not.toBeInTheDocument();
 });
 
+test("renders a compound question's answer as separate, clearly addressed parts", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer:
+        "1) According to the official documents 'Professional Courses Guidance', ... " +
+        "2) According to the official documents 'Specialized Artistic Courses Guidance', ...",
+      facts: [
+        "Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ...",
+        "Specialized Artistic Courses Guidance (https://www.dge.mec.pt/cursos-artisticos-especializados): ...",
+      ],
+      interpretations: [],
+      insufficient_info: false,
+      requires_confirmation: false,
+      session_id: "session-9",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-9" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: {
+      value: "What are the professional tracks? What are the specialized artistic tracks?",
+    },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(
+    screen.getByText("According to the official documents 'Professional Courses Guidance', ..."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      "According to the official documents 'Specialized Artistic Courses Guidance', ...",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Facts")).toBeInTheDocument();
+});
+
 test("labels interpretation answers distinctly from facts", async () => {
   fetchMock.mockResolvedValue({
     ok: true,
