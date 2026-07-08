@@ -20,8 +20,9 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, session=None, fail=False):
+    def __init__(self, session=None, previous_message=None, fail=False):
         self.session = session
+        self.previous_message = previous_message
         self.fail = fail
         self.added = []
         self.committed = False
@@ -30,6 +31,9 @@ class DummyDB:
     async def execute(self, statement):
         if self.fail:
             raise SQLAlchemyError("boom")
+        entity = statement.column_descriptions[0]["entity"]
+        if getattr(entity, "__name__", "") == "ChatMessage":
+            return DummyResult(self.previous_message)
         return DummyResult(self.session)
 
     def add(self, record):
@@ -280,3 +284,55 @@ def test_post_chat_message_endpoint_returns_401_for_unknown_session():
     )
 
     assert response.status_code == 401
+
+
+def test_post_chat_message_endpoint_retains_context_for_related_follow_up():
+    from types import SimpleNamespace
+
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    previous_message = SimpleNamespace(
+        id=uuid4(),
+        context_tokens=["Professional Courses Guidance"],
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+    )
+    client = _make_test_client(DummyDB(session=session, previous_message=previous_message))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What subjects does it include?", "session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["insufficient_info"] is False
+    assert payload["facts"] == previous_message.facts
+    assert "continuing from the previous topic" in payload["answer"].lower()
+
+
+def test_post_chat_message_endpoint_resets_context_on_topic_change():
+    from types import SimpleNamespace
+
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    previous_message = SimpleNamespace(
+        id=uuid4(),
+        context_tokens=["Professional Courses Guidance"],
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+    )
+    client = _make_test_client(DummyDB(session=session, previous_message=previous_message))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "message": "What are the specialized artistic tracks?",
+            "session_id": str(session_id),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["facts"] != previous_message.facts
+    assert "artistic" in payload["answer"].lower()

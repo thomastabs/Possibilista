@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.profiling import get_db_session
 from backend.models.chat_message import ChatMessage
 from backend.models.student_session import StudentSession
-from backend.services.chat_service import build_chat_response
+from backend.services.chat_service import build_chat_response_with_context, get_last_chat_message
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,7 @@ async def persist_chat_message(
     message: str,
     response: dict[str, Any],
 ) -> ChatMessage:
+    previous_message_id = response.get("previous_message_id")
     record = ChatMessage(
         session_id=student_session.id,
         message=message,
@@ -76,6 +77,8 @@ async def persist_chat_message(
         interpretations=response["interpretations"],
         insufficient_info=response["insufficient_info"],
         requires_confirmation=response["requires_confirmation"],
+        previous_message_id=UUID(previous_message_id) if previous_message_id else None,
+        context_tokens=response.get("context_tokens"),
     )
 
     try:
@@ -105,8 +108,12 @@ async def post_chat_message(
         extra={"session_id": str(student_session.id)},
     )
 
+    previous_message = await get_last_chat_message(db, str(student_session.id))
+
     try:
-        response = build_chat_response(payload.message, str(student_session.id))
+        response = build_chat_response_with_context(
+            payload.message, str(student_session.id), previous_message
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
