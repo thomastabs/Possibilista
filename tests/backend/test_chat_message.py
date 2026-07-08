@@ -126,6 +126,36 @@ def test_build_chat_response_with_context_has_no_prior_turn():
     assert response["context_tokens"] == ["Professional Courses Guidance"]
 
 
+def test_build_chat_response_with_context_handles_previous_message_without_context_tokens():
+    previous_message = SimpleNamespace(
+        id=uuid4(),
+        context_tokens=None,
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+    )
+
+    response = build_chat_response_with_context(
+        "What subjects does it include?",
+        "session-5",
+        previous_message,
+    )
+
+    assert response["insufficient_info"] is False
+    assert response["facts"] == previous_message.facts
+
+
+def test_build_chat_response_with_context_stays_insufficient_when_previous_turn_has_no_facts():
+    previous_message = SimpleNamespace(id=uuid4(), context_tokens=None, facts=[])
+
+    response = build_chat_response_with_context(
+        "What is the weather tomorrow?",
+        "session-6",
+        previous_message,
+    )
+
+    assert response["insufficient_info"] is True
+    assert response["facts"] == []
+
+
 def test_get_last_chat_message_returns_most_recent_record():
     class DummyResult:
         def __init__(self, record):

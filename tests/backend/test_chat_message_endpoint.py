@@ -311,6 +311,94 @@ def test_post_chat_message_endpoint_retains_context_for_related_follow_up():
     assert "continuing from the previous topic" in payload["answer"].lower()
 
 
+def test_post_chat_message_endpoint_rejects_missing_session_id():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What are the professional tracks?"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_post_chat_message_endpoint_rejects_empty_message():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "", "session_id": str(uuid4())},
+    )
+
+    assert response.status_code == 422
+
+
+class StatefulDummyDB:
+    """Chains each persisted ChatMessage as the "previous" one for the next query,
+    simulating a real multi-turn conversation across sequential requests."""
+
+    def __init__(self, session):
+        self.session = session
+        self.added = []
+
+    async def execute(self, statement):
+        entity = statement.column_descriptions[0]["entity"]
+        if getattr(entity, "__name__", "") == "ChatMessage":
+            return DummyResult(self.added[-1] if self.added else None)
+        return DummyResult(self.session)
+
+    def add(self, record):
+        self.added.append(record)
+
+    async def commit(self):
+        pass
+
+    async def rollback(self):
+        pass
+
+
+def test_post_chat_message_endpoint_multi_turn_conversation_stays_coherent():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(StatefulDummyDB(session=session))
+
+    first = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What are the professional tracks?", "session_id": str(session_id)},
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["facts"]
+    assert first_payload["insufficient_info"] is False
+
+    second = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What subjects does it include?", "session_id": str(session_id)},
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["insufficient_info"] is False
+    assert second_payload["facts"] == first_payload["facts"]
+    assert "continuing from the previous topic" in second_payload["answer"].lower()
+
+    third = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "message": "What are the specialized artistic tracks?",
+            "session_id": str(session_id),
+        },
+    )
+    assert third.status_code == 200
+    third_payload = third.json()
+    assert third_payload["facts"] != first_payload["facts"]
+    assert "artistic" in third_payload["answer"].lower()
+
+
 def test_post_chat_message_endpoint_resets_context_on_topic_change():
     from types import SimpleNamespace
 

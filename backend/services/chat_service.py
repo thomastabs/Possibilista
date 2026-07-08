@@ -163,6 +163,12 @@ def _is_topic_change(previous_tokens: list[str], current_tokens: list[str]) -> b
     return previous_set.isdisjoint(current_set)
 
 
+def _message_id_str(message: ChatMessage | None) -> str | None:
+    if message is None or message.id is None:
+        return None
+    return str(message.id)
+
+
 async def get_last_chat_message(db: AsyncSession, session_id: str) -> ChatMessage | None:
     """Fetch the most recent ChatMessage for a session, used as dialogue context."""
 
@@ -214,9 +220,9 @@ def build_chat_response_with_context(
         base_response["facts"] = carried_facts
         base_response["insufficient_info"] = False
         base_response["context_tokens"] = previous_tokens or current_tokens
-        base_response["previous_message_id"] = str(previous_message.id)
+        base_response["previous_message_id"] = _message_id_str(previous_message)
         return base_response
 
     base_response["context_tokens"] = current_tokens or previous_tokens
-    base_response["previous_message_id"] = str(previous_message.id) if previous_message else None
+    base_response["previous_message_id"] = _message_id_str(previous_message)
     return base_response
