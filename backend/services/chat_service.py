@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.models.chat_message import ChatMessage
 from backend.services.natural_language_question import retrieve_official_documents
 
 logger = logging.getLogger(__name__)
@@ -134,4 +138,85 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "insufficient_info": insufficient_info,
         "requires_confirmation": requires_confirmation,
         "session_id": session_id,
+        "topic_tokens": _topic_tokens(documents),
     }
+
+
+def _topic_tokens(documents: list[Any]) -> list[str]:
+    """Derive a topic identity for a turn from the official documents it matched."""
+
+    return sorted({document["title"] for document in documents})
+
+
+def _is_topic_change(previous_tokens: list[str], current_tokens: list[str]) -> bool:
+    """A topic change is a disjoint, non-empty overlap between two turns' topic tokens.
+
+    Either side being empty (a generic follow-up with no matched documents, or a first
+    turn with no prior context) is not treated as a change — there is no signal to
+    contradict continuity, so context is retained by default (Story 9389366).
+    """
+
+    previous_set = set(previous_tokens)
+    current_set = set(current_tokens)
+    if not previous_set or not current_set:
+        return False
+    return previous_set.isdisjoint(current_set)
+
+
+async def get_last_chat_message(db: AsyncSession, session_id: str) -> ChatMessage | None:
+    """Fetch the most recent ChatMessage for a session, used as dialogue context."""
+
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.timestamp.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def build_chat_response_with_context(
+    message: str,
+    session_id: str,
+    previous_message: ChatMessage | None,
+) -> dict[str, Any]:
+    """Build a chat response aware of the prior turn's dialogue context (Story 9389366).
+
+    Retains the previous turn's topic tokens when the new message continues the same
+    topic (or is too generic to signal a topic on its own), reusing its facts for a
+    coherent follow-up answer instead of reporting insufficient information. Resets
+    context — dropping the link to the previous turn — when an abrupt topic change is
+    detected.
+    """
+
+    base_response = build_chat_response(message, session_id)
+    current_tokens = base_response["topic_tokens"]
+    previous_tokens = list(previous_message.context_tokens or []) if previous_message else []
+
+    topic_changed = _is_topic_change(previous_tokens, current_tokens)
+
+    if topic_changed:
+        logger.info(
+            "Dialogue topic change detected; resetting conversation context.",
+            extra={"session_id": session_id},
+        )
+        base_response["context_tokens"] = current_tokens
+        base_response["previous_message_id"] = None
+        return base_response
+
+    if base_response["insufficient_info"] and previous_message and previous_message.facts:
+        logger.info(
+            "Reusing prior dialogue context for a follow-up question.",
+            extra={"session_id": session_id},
+        )
+        carried_facts = list(previous_message.facts)
+        base_response["answer"] = "Continuing from the previous topic: " + " ".join(carried_facts)
+        base_response["facts"] = carried_facts
+        base_response["insufficient_info"] = False
+        base_response["context_tokens"] = previous_tokens or current_tokens
+        base_response["previous_message_id"] = str(previous_message.id)
+        return base_response
+
+    base_response["context_tokens"] = current_tokens or previous_tokens
+    base_response["previous_message_id"] = str(previous_message.id) if previous_message else None
+    return base_response

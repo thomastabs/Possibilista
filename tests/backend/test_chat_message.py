@@ -1,4 +1,9 @@
+import asyncio
+from types import SimpleNamespace
+from uuid import uuid4
+
 from backend.models.chat_message import ChatMessage
+from backend.services.chat_service import build_chat_response_with_context, get_last_chat_message
 
 
 def test_chat_message_table_shape():
@@ -70,3 +75,77 @@ def test_chat_message_defaults_are_empty_and_false():
     assert message.interpretations is None or message.interpretations == []
     assert message.insufficient_info in (None, False)
     assert message.requires_confirmation in (None, False)
+
+
+def test_build_chat_response_with_context_retains_context_for_related_follow_up():
+    previous_message = SimpleNamespace(
+        id=uuid4(),
+        context_tokens=["Professional Courses Guidance"],
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+    )
+
+    response = build_chat_response_with_context(
+        "What subjects does it include?",
+        "session-1",
+        previous_message,
+    )
+
+    assert response["insufficient_info"] is False
+    assert response["facts"] == previous_message.facts
+    assert response["previous_message_id"] == str(previous_message.id)
+    assert response["context_tokens"] == previous_message.context_tokens
+    assert "continuing from the previous topic" in response["answer"].lower()
+
+
+def test_build_chat_response_with_context_resets_on_abrupt_topic_change():
+    previous_message = SimpleNamespace(
+        id=uuid4(),
+        context_tokens=["Professional Courses Guidance"],
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+    )
+
+    response = build_chat_response_with_context(
+        "What are the specialized artistic tracks?",
+        "session-2",
+        previous_message,
+    )
+
+    assert response["previous_message_id"] is None
+    assert response["context_tokens"] == ["Specialized Artistic Courses Guidance"]
+    assert response["facts"] != previous_message.facts
+
+
+def test_build_chat_response_with_context_has_no_prior_turn():
+    response = build_chat_response_with_context(
+        "What are the professional tracks?",
+        "session-3",
+        None,
+    )
+
+    assert response["previous_message_id"] is None
+    assert response["context_tokens"] == ["Professional Courses Guidance"]
+
+
+def test_get_last_chat_message_returns_most_recent_record():
+    class DummyResult:
+        def __init__(self, record):
+            self._record = record
+
+        def scalar_one_or_none(self):
+            return self._record
+
+    class DummyDB:
+        def __init__(self, record):
+            self.record = record
+            self.statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return DummyResult(self.record)
+
+    expected = SimpleNamespace(id=uuid4())
+    db = DummyDB(expected)
+
+    result = asyncio.run(get_last_chat_message(db, "session-4"))
+
+    assert result is expected
