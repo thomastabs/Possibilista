@@ -1,7 +1,12 @@
 """Chat message ORM entity.
 
 Stores a single conversational turn, including the structured facts /
-interpretations breakdown of the answer (Story 9389364).
+interpretations breakdown of the answer (Story 9389364) and the dialogue
+context fields used to link turns and detect topic changes across a
+multi-turn conversation (Story 9389366): ``previous_message_id`` points to
+the prior turn in the same session, and ``context_tokens`` records the
+topic identity (matched official-document titles) of this turn so the next
+turn can decide whether to retain or reset context.
 """
 
 from __future__ import annotations
@@ -41,6 +46,15 @@ class ChatMessage(Base):
     )
     insufficient_info: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     requires_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    previous_message_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("chat_message.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    context_tokens: Mapped[list[str] | None] = mapped_column(
+        ARRAY(Text()),
+        nullable=True,
+    )
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
