@@ -33,8 +33,13 @@ class ChatMessageResponse(BaseModel):
     answer: str
     facts: list[str]
     interpretations: list[str]
-    insufficient_info: bool
-    requires_confirmation: bool
+    insufficient_info: bool = Field(
+        description="True when the question has no basis in official document sources.",
+    )
+    requires_confirmation: bool = Field(
+        description="True when the question covers a special case or exception requiring "
+        "human or institutional confirmation.",
+    )
     session_id: str
 
 

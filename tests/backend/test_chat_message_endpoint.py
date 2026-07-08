@@ -221,6 +221,23 @@ def test_post_chat_message_endpoint_returns_200_with_full_shape():
     assert all("https://www.dge.mec.pt/" in fact for fact in payload["facts"])
 
 
+def test_post_chat_message_endpoint_flags_are_false_when_not_applicable():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What are the professional tracks?", "session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["insufficient_info"] is False
+    assert payload["requires_confirmation"] is False
+
+
 def test_post_chat_message_endpoint_marks_interpretation_answers_distinctly():
     session_id = uuid4()
     session = StudentSession(id=session_id, school_year=9)
