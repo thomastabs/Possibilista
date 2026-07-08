@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from backend.models.chat_message import ChatMessage
 from backend.services.natural_language_question import retrieve_official_documents
 
 logger = logging.getLogger(__name__)
+
+_QUESTION_WORDS = {"what", "which", "how", "when", "where", "why", "who"}
 
 _INTERPRETATION_TERMS = {
     "should i",
@@ -226,3 +229,99 @@ def build_chat_response_with_context(
     base_response["context_tokens"] = current_tokens or previous_tokens
     base_response["previous_message_id"] = _message_id_str(previous_message)
     return base_response
+
+
+def segment_intents(message: str) -> list[str]:
+    """Split a compound question into its distinct intents (Story 9389368).
+
+    Two heuristics, tried in order:
+    1. Multiple "?" characters split the message outright into that many parts.
+    2. A single-sentence question joined by "and" is split only when the second half
+       itself starts with a question word — so a plain conjunction inside one intent
+       ("professional and artistic tracks") is left alone, and only a genuine second
+       question ("... and what subjects does it include?") is segmented.
+
+    A straightforward question that matches neither heuristic returns as one segment,
+    so the single-intent path is unchanged from before this story.
+    """
+
+    normalized = message.strip()
+
+    if normalized.count("?") > 1:
+        parts = [part.strip() for part in normalized.split("?") if part.strip()]
+        return [f"{part}?" for part in parts]
+
+    split = re.split(r"\band\b", normalized, maxsplit=1)
+    if len(split) == 2:
+        first, second = (part.strip() for part in split)
+        second_first_word = second.split(" ", 1)[0].casefold().strip("?,.") if second else ""
+        if first and second and second_first_word in _QUESTION_WORDS:
+            return [first, second]
+
+    return [normalized]
+
+
+def build_chat_response_for_message(
+    message: str,
+    session_id: str,
+    previous_message: ChatMessage | None,
+) -> dict[str, Any]:
+    """Top-level chat response builder: segments intents, then dispatches each part.
+
+    A straightforward, single-intent message is unchanged from before this story — it
+    goes straight through the dialogue-context-aware ``build_chat_response_with_context``.
+    A compound/multi-part question is segmented (Story 9389368) and each part is answered
+    independently via the context-blind ``build_chat_response`` (dialogue-context carry-
+    forward is reserved for the common single-intent case), then combined: answers are
+    numbered and joined, facts/interpretations concatenated across parts,
+    insufficient_info only when *every* part lacked a basis, requires_confirmation when
+    *any* part needs it.
+    """
+
+    normalized_message = _normalize_message(message)
+    segments = segment_intents(normalized_message)
+
+    if len(segments) == 1:
+        return build_chat_response_with_context(segments[0], session_id, previous_message)
+
+    logger.info(
+        "Compound question segmented into multiple intents.",
+        extra={"session_id": session_id, "segments_count": len(segments)},
+    )
+
+    segment_responses = [build_chat_response(segment, session_id) for segment in segments]
+
+    answer = " ".join(
+        f"{index}) {response['answer']}" for index, response in enumerate(segment_responses, start=1)
+    )
+    facts = [fact for response in segment_responses for fact in response["facts"]]
+    interpretations = [
+        interpretation
+        for response in segment_responses
+        for interpretation in response["interpretations"]
+    ]
+    insufficient_info = all(response["insufficient_info"] for response in segment_responses)
+    requires_confirmation = any(response["requires_confirmation"] for response in segment_responses)
+    topic_tokens = sorted({token for response in segment_responses for token in response["topic_tokens"]})
+
+    logger.info(
+        "Built combined multi-intent chat response.",
+        extra={
+            "session_id": session_id,
+            "segments_count": len(segments),
+            "insufficient_info": insufficient_info,
+            "requires_confirmation": requires_confirmation,
+        },
+    )
+
+    return {
+        "answer": answer,
+        "facts": facts,
+        "interpretations": interpretations,
+        "insufficient_info": insufficient_info,
+        "requires_confirmation": requires_confirmation,
+        "session_id": session_id,
+        "topic_tokens": topic_tokens,
+        "context_tokens": topic_tokens,
+        "previous_message_id": None,
+    }

@@ -3,7 +3,12 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from backend.models.chat_message import ChatMessage
-from backend.services.chat_service import build_chat_response_with_context, get_last_chat_message
+from backend.services.chat_service import (
+    build_chat_response_for_message,
+    build_chat_response_with_context,
+    get_last_chat_message,
+    segment_intents,
+)
 
 
 def test_chat_message_table_shape():
@@ -154,6 +159,75 @@ def test_build_chat_response_with_context_stays_insufficient_when_previous_turn_
 
     assert response["insufficient_info"] is True
     assert response["facts"] == []
+
+
+def test_segment_intents_leaves_a_straightforward_question_as_one_segment():
+    segments = segment_intents("What are the professional tracks?")
+
+    assert segments == ["What are the professional tracks?"]
+
+
+def test_segment_intents_does_not_split_a_plain_conjunction():
+    segments = segment_intents("Which tracks focus on professional and artistic training?")
+
+    assert segments == ["Which tracks focus on professional and artistic training?"]
+
+
+def test_segment_intents_splits_on_multiple_question_marks():
+    segments = segment_intents(
+        "What are the professional tracks? What subjects does it include?"
+    )
+
+    assert segments == [
+        "What are the professional tracks?",
+        "What subjects does it include?",
+    ]
+
+
+def test_segment_intents_splits_a_single_sentence_compound_question():
+    segments = segment_intents(
+        "What are the professional tracks and what subjects do they include?"
+    )
+
+    assert segments == [
+        "What are the professional tracks",
+        "what subjects do they include?",
+    ]
+
+
+def test_build_chat_response_for_message_straightforward_question_matches_single_intent_path():
+    with_context = build_chat_response_for_message(
+        "What are the professional tracks?", "session-7", None
+    )
+    single_intent = build_chat_response_with_context(
+        "What are the professional tracks?", "session-7", None
+    )
+
+    assert with_context == single_intent
+
+
+def test_build_chat_response_for_message_segments_a_compound_question():
+    response = build_chat_response_for_message(
+        "What are the professional tracks? What are the specialized artistic tracks?",
+        "session-8",
+        None,
+    )
+
+    assert response["answer"].startswith("1) ")
+    assert "2) " in response["answer"]
+    assert any("Professional Courses Guidance" in fact for fact in response["facts"])
+    assert any("Specialized Artistic Courses Guidance" in fact for fact in response["facts"])
+    assert response["insufficient_info"] is False
+
+
+def test_build_chat_response_for_message_compound_question_flags_confirmation_from_any_part():
+    response = build_chat_response_for_message(
+        "What are the professional tracks? Do I need an exception for a special case?",
+        "session-9",
+        None,
+    )
+
+    assert response["requires_confirmation"] is True
 
 
 def test_get_last_chat_message_returns_most_recent_record():
