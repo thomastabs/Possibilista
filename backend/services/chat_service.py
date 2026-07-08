@@ -82,8 +82,12 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     insufficient_info = not documents and not is_interpretative
 
     if insufficient_info:
+        logger.info(
+            "Insufficient information detected for chat message.",
+            extra={"session_id": session_id},
+        )
         answer = (
-            "I do not have enough documented information to answer this confidently. "
+            "I cannot answer this question based on the current official sources available. "
             "Please consult a human advisor or school guidance counselor."
         )
     elif is_interpretative:

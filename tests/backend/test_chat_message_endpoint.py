@@ -76,6 +76,29 @@ def test_build_chat_response_flags_insufficient_info_when_no_match():
     assert response["insufficient_info"] is True
     assert response["facts"] == []
     assert response["interpretations"] == []
+    assert "cannot answer this question based on the current official sources" in (
+        response["answer"].lower()
+    )
+
+
+def test_post_chat_message_persists_insufficient_info_flag_in_database():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=10)
+    db = DummyDB(session=session)
+
+    response = asyncio.run(
+        post_chat_message(
+            payload=type(
+                "Payload", (), {"message": "What is the weather tomorrow?", "session_id": str(session_id)}
+            )(),
+            _credentials=object(),
+            db=db,
+        )
+    )
+
+    assert response.insufficient_info is True
+    assert len(db.added) == 1
+    assert db.added[0].insufficient_info is True
 
 
 def test_build_chat_response_rejects_empty_message():
