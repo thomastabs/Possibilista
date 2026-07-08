@@ -55,6 +55,8 @@ def test_build_chat_response_cites_official_documents_for_factual_question():
     assert response["interpretations"] == []
     assert response["insufficient_info"] is False
     assert "according to the official documents" in response["answer"].lower()
+    assert "https://www.dge.mec.pt/" in response["answer"]
+    assert all("https://www.dge.mec.pt/" in fact for fact in response["facts"])
 
 
 def test_build_chat_response_marks_interpretation_for_advice_question():
@@ -159,6 +161,28 @@ def test_post_chat_message_endpoint_returns_200_with_full_shape():
     }
     assert payload["session_id"] == str(session_id)
     assert payload["facts"]
+    assert all("https://www.dge.mec.pt/" in fact for fact in payload["facts"])
+
+
+def test_post_chat_message_endpoint_marks_interpretation_answers_distinctly():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "message": "Which professional track would you recommend for me?",
+            "session_id": str(session_id),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["interpretations"]
+    assert "interpretation" in payload["answer"].lower()
+    assert "not a direct quote from official sources" in payload["answer"].lower()
 
 
 def test_post_chat_message_endpoint_requires_bearer_authentication():

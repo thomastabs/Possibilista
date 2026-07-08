@@ -56,6 +56,10 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
 
     normalized_message = _normalize_message(message)
 
+    logger.info(
+        "Retrieving source-grounded documents for chat message.",
+        extra={"session_id": session_id, "query": normalized_message},
+    )
     documents = retrieve_official_documents(normalized_message)
     is_interpretative = _contains_any(normalized_message, _INTERPRETATION_TERMS)
     requires_confirmation = _contains_any(normalized_message, _CRITICAL_DECISION_TERMS)
@@ -64,7 +68,10 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     interpretations: list[str] = []
 
     if documents:
-        facts = [f"{document['title']}: {document['content']}" for document in documents]
+        facts = [
+            f"{document['title']} ({document['source_url']}): {document['content']}"
+            for document in documents
+        ]
 
     if is_interpretative:
         interpretations.append(
@@ -92,7 +99,10 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         )
     else:
         document_titles = ", ".join(f"'{document['title']}'" for document in documents)
-        answer = f"According to the official documents {document_titles}, {documents[0]['content']}"
+        answer = (
+            f"According to the official documents {document_titles} "
+            f"(source: {documents[0]['source_url']}), {documents[0]['content']}"
+        )
 
     logger.info(
         "Built chat message response.",
