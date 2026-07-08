@@ -195,6 +195,31 @@ def test_segment_intents_splits_a_single_sentence_compound_question():
     ]
 
 
+def test_segment_intents_splits_compound_question_without_a_trailing_question_mark():
+    segments = segment_intents("What are the professional tracks and how do I apply")
+
+    assert segments == [
+        "What are the professional tracks",
+        "how do I apply",
+    ]
+
+
+def test_segment_intents_degrades_to_one_segment_for_malformed_question_marks():
+    segments = segment_intents("What are the professional tracks??")
+
+    assert segments == ["What are the professional tracks?"]
+
+
+def test_segment_intents_splits_three_part_compound_question():
+    segments = segment_intents(
+        "What are the professional tracks? "
+        "What are the specialized artistic tracks? "
+        "What subjects does the professional track include?"
+    )
+
+    assert len(segments) == 3
+
+
 def test_build_chat_response_for_message_straightforward_question_matches_single_intent_path():
     with_context = build_chat_response_for_message(
         "What are the professional tracks?", "session-7", None
@@ -228,6 +253,24 @@ def test_build_chat_response_for_message_compound_question_flags_confirmation_fr
     )
 
     assert response["requires_confirmation"] is True
+
+
+def test_build_chat_response_for_message_combines_three_part_compound_question():
+    response = build_chat_response_for_message(
+        "What are the professional tracks? "
+        "What are the specialized artistic tracks? "
+        "What is the weather tomorrow?",
+        "session-10",
+        None,
+    )
+
+    assert "1) " in response["answer"]
+    assert "2) " in response["answer"]
+    assert "3) " in response["answer"]
+    assert response["insufficient_info"] is False, (
+        "at least one of the three parts (professional/artistic) had a basis, so the "
+        "combined response must not report insufficient_info overall"
+    )
 
 
 def test_get_last_chat_message_returns_most_recent_record():

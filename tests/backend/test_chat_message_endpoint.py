@@ -289,6 +289,41 @@ def test_post_chat_message_endpoint_breaks_down_a_compound_question_into_parts()
     assert payload["insufficient_info"] is False
 
 
+def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_shape():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "message": (
+                "What are the professional tracks? "
+                "What are the specialized artistic tracks?"
+            ),
+            "session_id": str(session_id),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) == {
+        "answer",
+        "facts",
+        "interpretations",
+        "insufficient_info",
+        "requires_confirmation",
+        "session_id",
+    }
+    assert isinstance(payload["answer"], str) and payload["answer"]
+    assert isinstance(payload["facts"], list) and all(isinstance(f, str) for f in payload["facts"])
+    assert isinstance(payload["interpretations"], list)
+    assert isinstance(payload["insufficient_info"], bool)
+    assert isinstance(payload["requires_confirmation"], bool)
+    assert payload["session_id"] == str(session_id)
+
+
 def test_post_chat_message_endpoint_requires_bearer_authentication():
     client = _make_test_client(DummyDB(session=None))
 
