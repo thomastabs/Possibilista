@@ -110,6 +110,40 @@ def test_build_chat_response_rejects_empty_message():
         raise AssertionError("Expected ValueError for an empty message.")
 
 
+def test_build_chat_response_flags_confirmation_for_special_case_question():
+    response = build_chat_response(
+        "My situation is a special case — can I get an exception to enroll?",
+        "session-5",
+    )
+
+    assert response["requires_confirmation"] is True
+
+
+def test_post_chat_message_persists_requires_confirmation_flag_in_database():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=10)
+    db = DummyDB(session=session)
+
+    response = asyncio.run(
+        post_chat_message(
+            payload=type(
+                "Payload",
+                (),
+                {
+                    "message": "I want to request an exception for a special case equivalence.",
+                    "session_id": str(session_id),
+                },
+            )(),
+            _credentials=object(),
+            db=db,
+        )
+    )
+
+    assert response.requires_confirmation is True
+    assert len(db.added) == 1
+    assert db.added[0].requires_confirmation is True
+
+
 def test_resolve_student_session_rejects_unknown_session():
     db = DummyDB(session=None)
 

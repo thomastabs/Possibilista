@@ -27,6 +27,8 @@ _CRITICAL_DECISION_TERMS = {
     "drop out",
     "equivalence",
     "special regime",
+    "special case",
+    "exception",
     "enroll",
     "enrollment",
     "contingent",
@@ -63,6 +65,12 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     documents = retrieve_official_documents(normalized_message)
     is_interpretative = _contains_any(normalized_message, _INTERPRETATION_TERMS)
     requires_confirmation = _contains_any(normalized_message, _CRITICAL_DECISION_TERMS)
+
+    if requires_confirmation:
+        logger.info(
+            "Question flagged as requiring human or institutional confirmation.",
+            extra={"session_id": session_id},
+        )
 
     facts: list[str] = []
     interpretations: list[str] = []
