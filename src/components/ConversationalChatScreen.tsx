@@ -144,8 +144,8 @@ export function ConversationalChatScreen({
               ) : null}
 
               {turn.insufficient_info ? (
-                <p className="chat-screen__insufficient-info">
-                  There is not enough documented information to answer this confidently.
+                <p role="status" className="chat-screen__insufficient-info">
+                  The system cannot answer this question based on the current official sources.
                 </p>
               ) : null}
 

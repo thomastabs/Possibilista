@@ -91,7 +91,9 @@ test("shows a notice when information is insufficient", async () => {
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(
-    screen.getByText("There is not enough documented information to answer this confidently."),
+    screen.getByRole("status", {
+      name: "The system cannot answer this question based on the current official sources.",
+    }),
   ).toBeInTheDocument();
 });
 
