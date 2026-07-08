@@ -34,3 +34,7 @@ class StudentSession(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
