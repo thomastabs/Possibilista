@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.secondary_track import (
     SecondaryTrack,
     SecondaryTrackDiscipline,
+    SecondaryTrackDisciplineCombination,
     SecondaryTrackExamRequirement,
 )
 
@@ -27,6 +28,11 @@ EXAM_REQUIREMENTS_UNKNOWN_TRACK_MESSAGE = (
     "No information is available for that track. Please ask about valid tracks."
 )
 EXAM_REQUIREMENTS_SUCCESS_MESSAGE = "Exam requirements retrieved successfully."
+
+DISCIPLINE_COMBINATIONS_INVALID_FORMAT_MESSAGE = "Invalid track ID format."
+DISCIPLINE_COMBINATIONS_NOT_FOUND_MESSAGE = (
+    "There are no valid discipline combinations for this track."
+)
 
 
 async def get_disciplines_for_track(db: AsyncSession, track_id: str) -> dict[str, Any]:
@@ -106,4 +112,53 @@ async def get_exam_requirements_for_track(db: AsyncSession, track_id: str) -> di
             {"exam_name": exam.exam_name, "timing": exam.timing} for exam in exam_requirements
         ],
         "message": EXAM_REQUIREMENTS_SUCCESS_MESSAGE,
+    }
+
+
+async def get_discipline_combinations_for_track(db: AsyncSession, track_id: str) -> dict[str, Any]:
+    try:
+        parsed_track_id = UUID(track_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info("Rejected malformed secondary track id.", extra={"track_id": track_id})
+        return {
+            "valid": False,
+            "trienais": [],
+            "bienais": [],
+            "anuais": [],
+            "combinations": [],
+            "message": DISCIPLINE_COMBINATIONS_INVALID_FORMAT_MESSAGE,
+        }
+
+    try:
+        result = await db.execute(
+            select(SecondaryTrackDisciplineCombination).where(
+                SecondaryTrackDisciplineCombination.track_id == parsed_track_id
+            )
+        )
+        combination = result.scalars().one_or_none()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load secondary track discipline combinations.", extra={"track_id": track_id}
+        )
+        raise
+
+    if combination is None:
+        logger.info("No discipline combinations found for track.", extra={"track_id": track_id})
+        return {
+            "valid": False,
+            "trienais": [],
+            "bienais": [],
+            "anuais": [],
+            "combinations": [],
+            "message": DISCIPLINE_COMBINATIONS_NOT_FOUND_MESSAGE,
+        }
+
+    logger.info("Retrieved secondary track discipline combinations.", extra={"track_id": track_id})
+    return {
+        "valid": True,
+        "trienais": list(combination.trienais),
+        "bienais": list(combination.bienais),
+        "anuais": list(combination.anuais),
+        "combinations": list(combination.combinations),
+        "message": combination.message or "",
     }

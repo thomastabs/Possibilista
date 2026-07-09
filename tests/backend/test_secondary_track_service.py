@@ -3,8 +3,15 @@ from uuid import uuid4
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.models.secondary_track import SecondaryTrack, SecondaryTrackExamRequirement
-from backend.services.secondary_track_service import get_exam_requirements_for_track
+from backend.models.secondary_track import (
+    SecondaryTrack,
+    SecondaryTrackDisciplineCombination,
+    SecondaryTrackExamRequirement,
+)
+from backend.services.secondary_track_service import (
+    get_discipline_combinations_for_track,
+    get_exam_requirements_for_track,
+)
 
 
 class DummyResult:
@@ -17,11 +24,15 @@ class DummyResult:
     def all(self):
         return self._records
 
+    def one_or_none(self):
+        return self._records[0] if self._records else None
+
 
 class DummyDB:
-    def __init__(self, track_by_id=None, exam_requirements=None, fail=False):
+    def __init__(self, track_by_id=None, exam_requirements=None, discipline_combination=None, fail=False):
         self.track_by_id = track_by_id or {}
         self.exam_requirements = exam_requirements or []
+        self.discipline_combination = discipline_combination
         self.fail = fail
 
     async def get(self, model, record_id):
@@ -32,6 +43,11 @@ class DummyDB:
     async def execute(self, statement):
         if self.fail:
             raise SQLAlchemyError("boom")
+        entity = statement.column_descriptions[0]["entity"]
+        entity_name = getattr(entity, "__name__", "")
+        if entity_name == "SecondaryTrackDisciplineCombination":
+            records = [self.discipline_combination] if self.discipline_combination else []
+            return DummyResult(records)
         return DummyResult(self.exam_requirements)
 
 
@@ -78,5 +94,58 @@ def test_get_exam_requirements_for_track_returns_invalid_for_malformed_id():
     assert result == {
         "valid": False,
         "exams": [],
+        "message": "Invalid track ID format.",
+    }
+
+
+def test_get_discipline_combinations_for_track_returns_combinations_for_valid_track():
+    track_id = uuid4()
+    combination = SecondaryTrackDisciplineCombination(
+        id=uuid4(),
+        track_id=track_id,
+        trienais=["Mathematics A"],
+        bienais=["Biology"],
+        anuais=["Philosophy"],
+        combinations=["Mathematics A + Biology"],
+        message="",
+    )
+    db = DummyDB(discipline_combination=combination)
+
+    result = asyncio.run(get_discipline_combinations_for_track(db, str(track_id)))
+
+    assert result == {
+        "valid": True,
+        "trienais": ["Mathematics A"],
+        "bienais": ["Biology"],
+        "anuais": ["Philosophy"],
+        "combinations": ["Mathematics A + Biology"],
+        "message": "",
+    }
+
+
+def test_get_discipline_combinations_for_track_returns_invalid_when_no_combinations_exist():
+    db = DummyDB()
+
+    result = asyncio.run(get_discipline_combinations_for_track(db, str(uuid4())))
+
+    assert result["valid"] is False
+    assert result["trienais"] == []
+    assert result["bienais"] == []
+    assert result["anuais"] == []
+    assert result["combinations"] == []
+    assert "no valid discipline combinations" in result["message"].lower()
+
+
+def test_get_discipline_combinations_for_track_returns_invalid_for_malformed_id():
+    db = DummyDB()
+
+    result = asyncio.run(get_discipline_combinations_for_track(db, "not-a-uuid"))
+
+    assert result == {
+        "valid": False,
+        "trienais": [],
+        "bienais": [],
+        "anuais": [],
+        "combinations": [],
         "message": "Invalid track ID format.",
     }
