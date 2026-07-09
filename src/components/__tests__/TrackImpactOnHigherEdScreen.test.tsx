@@ -75,6 +75,38 @@ test("displays an informative message when the track is invalid or not recognize
   ).toBeInTheDocument();
 });
 
+test("displays the 'track not recognized' portion of the invalid-track message", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      valid: false,
+      impact_description: "",
+      message:
+        "The track is not recognized, and no impact information is available for the track.",
+    }),
+  });
+
+  render(<TrackImpactOnHigherEdScreen trackId="unknown-track" />);
+
+  expect(await screen.findByText(/not recognized/i)).toBeInTheDocument();
+});
+
+test("displays the 'no impact information' portion of the invalid-track message", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      valid: false,
+      impact_description: "",
+      message:
+        "The track is not recognized, and no impact information is available for the track.",
+    }),
+  });
+
+  render(<TrackImpactOnHigherEdScreen trackId="unknown-track" />);
+
+  expect(await screen.findByText(/no impact information/i)).toBeInTheDocument();
+});
+
 test("shows an error message when the request fails", async () => {
   fetchMock.mockRejectedValue(new Error("Network error"));
 
