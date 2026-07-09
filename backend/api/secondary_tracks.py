@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.profiling import get_db_session
 from backend.models.secondary_track import SecondaryTrack
 from backend.services.secondary_track_service import (
+    get_discipline_combinations_for_track,
     get_disciplines_for_track,
     get_exam_requirements_for_track,
 )
@@ -114,3 +115,36 @@ async def get_secondary_track_exam_requirements(
         ],
         message=result["message"],
     )
+
+
+class SecondaryTrackDisciplineCombinationsResponse(BaseModel):
+    valid: bool
+    trienais: list[str]
+    bienais: list[str]
+    anuais: list[str]
+    combinations: list[str]
+    message: str
+
+
+@router.get(
+    "/{track_id}/discipline-combinations",
+    response_model=SecondaryTrackDisciplineCombinationsResponse,
+)
+async def get_secondary_track_discipline_combinations(
+    track_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> SecondaryTrackDisciplineCombinationsResponse:
+    logger.info(
+        "Received secondary track discipline combinations request.", extra={"track_id": track_id}
+    )
+
+    try:
+        result = await get_discipline_combinations_for_track(db, track_id)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load secondary track discipline combinations.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load secondary track discipline combinations.",
+        ) from exc
+
+    return SecondaryTrackDisciplineCombinationsResponse(**result)
