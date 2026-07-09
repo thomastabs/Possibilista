@@ -22,6 +22,10 @@ class SecondaryTrack(Base):
         back_populates="track",
         cascade="all, delete-orphan",
     )
+    exam_requirements: Mapped[list["SecondaryTrackExamRequirement"]] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+    )
 
 
 class SecondaryTrackDiscipline(Base):
@@ -37,4 +41,20 @@ class SecondaryTrackDiscipline(Base):
     discipline_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     track: Mapped[SecondaryTrack] = relationship(back_populates="disciplines")
+
+
+class SecondaryTrackExamRequirement(Base):
+    __tablename__ = "secondary_track_exam_requirement"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    track_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("secondary_track.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    exam_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    timing: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    track: Mapped[SecondaryTrack] = relationship(back_populates="exam_requirements")
 
