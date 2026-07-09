@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -7,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api import router as api_router
 from backend.api.secondary_tracks import get_db_session
 from backend.models.secondary_track import SecondaryTrack, SecondaryTrackDiscipline
+from backend.services.secondary_track_service import get_disciplines_for_track
 
 
 class DummyResult:
@@ -121,3 +123,43 @@ def test_get_disciplines_endpoint_rejects_malformed_track_id():
     assert payload["valid"] is False
     assert payload["disciplines"] == []
     assert "invalid" in payload["message"].lower()
+
+
+def test_get_disciplines_for_track_returns_disciplines_for_valid_track():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description="STEM focused track.")
+    disciplines = [
+        SecondaryTrackDiscipline(id=uuid4(), track_id=track_id, discipline_name="Mathematics"),
+        SecondaryTrackDiscipline(id=uuid4(), track_id=track_id, discipline_name="Physics"),
+    ]
+    db = DummyDB(track_by_id={track_id: track}, disciplines=disciplines)
+
+    result = asyncio.run(get_disciplines_for_track(db, str(track_id)))
+
+    assert result == {
+        "valid": True,
+        "disciplines": ["Mathematics", "Physics"],
+        "message": "Disciplines retrieved successfully.",
+    }
+
+
+def test_get_disciplines_for_track_returns_invalid_for_unknown_track():
+    db = DummyDB()
+
+    result = asyncio.run(get_disciplines_for_track(db, str(uuid4())))
+
+    assert result["valid"] is False
+    assert result["disciplines"] == []
+    assert result["message"] == "The specified secondary track does not exist. Please ask about valid tracks."
+
+
+def test_get_disciplines_for_track_returns_invalid_for_malformed_id():
+    db = DummyDB()
+
+    result = asyncio.run(get_disciplines_for_track(db, "not-a-uuid"))
+
+    assert result == {
+        "valid": False,
+        "disciplines": [],
+        "message": "Invalid track ID format.",
+    }
