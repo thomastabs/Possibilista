@@ -11,4 +11,5 @@ from .secondary_track import (
     SecondaryTrackDiscipline,
     SecondaryTrackDisciplineCombination,
     SecondaryTrackExamRequirement,
+    SecondaryTrackHigherEdImpact,
 )

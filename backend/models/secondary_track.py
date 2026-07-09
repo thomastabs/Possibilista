@@ -31,6 +31,11 @@ class SecondaryTrack(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    higher_ed_impact: Mapped["SecondaryTrackHigherEdImpact | None"] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class SecondaryTrackDiscipline(Base):
@@ -82,4 +87,21 @@ class SecondaryTrackDisciplineCombination(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     track: Mapped[SecondaryTrack] = relationship(back_populates="discipline_combination")
+
+
+class SecondaryTrackHigherEdImpact(Base):
+    __tablename__ = "secondary_track_higher_ed_impact"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    track_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("secondary_track.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    impact_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    track: Mapped[SecondaryTrack] = relationship(back_populates="higher_ed_impact")
 
