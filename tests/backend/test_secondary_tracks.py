@@ -244,13 +244,14 @@ def test_exam_requirements_endpoint_rejects_malformed_track_id():
 
 def test_higher_ed_impact_endpoint_returns_valid_track_impact():
     track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
     impact = SecondaryTrackHigherEdImpact(
         id=uuid4(),
         track_id=track_id,
         impact_description="Opens access to STEM higher education courses.",
-        message="",
+        message="Higher education impact retrieved successfully.",
     )
-    client = _make_test_client(DummyDB(higher_ed_impact=impact))
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}, higher_ed_impact=impact))
 
     response = client.get(f"/api/v1/secondary-tracks/{track_id}/higher-ed-impact")
 
@@ -258,8 +259,22 @@ def test_higher_ed_impact_endpoint_returns_valid_track_impact():
     assert response.json() == {
         "valid": True,
         "impact_description": "Opens access to STEM higher education courses.",
-        "message": "",
+        "message": "Higher education impact retrieved successfully.",
     }
+
+
+def test_higher_ed_impact_endpoint_returns_valid_true_with_no_data_for_track_without_impact():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}))
+
+    response = client.get(f"/api/v1/secondary-tracks/{track_id}/higher-ed-impact")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert payload["impact_description"] == ""
+    assert "no higher education impact information" in payload["message"].lower()
 
 
 def test_higher_ed_impact_endpoint_returns_invalid_for_unknown_track():

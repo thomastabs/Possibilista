@@ -15,6 +15,7 @@ from backend.models.secondary_track import (
     SecondaryTrackDiscipline,
     SecondaryTrackDisciplineCombination,
     SecondaryTrackExamRequirement,
+    SecondaryTrackHigherEdImpact,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,15 @@ DISCIPLINE_COMBINATIONS_INVALID_FORMAT_MESSAGE = "Invalid track ID format."
 DISCIPLINE_COMBINATIONS_NOT_FOUND_MESSAGE = (
     "There are no valid discipline combinations for this track."
 )
+
+HIGHER_ED_IMPACT_INVALID_FORMAT_MESSAGE = "Invalid track ID format."
+HIGHER_ED_IMPACT_TRACK_NOT_FOUND_MESSAGE = (
+    "The track is not recognized, and no impact information is available for the track."
+)
+HIGHER_ED_IMPACT_NO_DATA_MESSAGE = (
+    "No higher education impact information is available for this track yet."
+)
+HIGHER_ED_IMPACT_SUCCESS_MESSAGE = "Higher education impact retrieved successfully."
 
 
 async def get_disciplines_for_track(db: AsyncSession, track_id: str) -> dict[str, Any]:
@@ -161,4 +171,58 @@ async def get_discipline_combinations_for_track(db: AsyncSession, track_id: str)
         "anuais": list(combination.anuais),
         "combinations": list(combination.combinations),
         "message": combination.message or "",
+    }
+
+
+async def get_higher_ed_impact_for_track(db: AsyncSession, track_id: str) -> dict[str, Any]:
+    try:
+        parsed_track_id = UUID(track_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info("Rejected malformed secondary track id.", extra={"track_id": track_id})
+        return {
+            "valid": False,
+            "impact_description": "",
+            "message": HIGHER_ED_IMPACT_INVALID_FORMAT_MESSAGE,
+        }
+
+    try:
+        track = await db.get(SecondaryTrack, parsed_track_id)
+    except SQLAlchemyError:
+        logger.exception("Failed to load secondary track.", extra={"track_id": track_id})
+        raise
+
+    if track is None:
+        logger.info("Secondary track not found.", extra={"track_id": track_id})
+        return {
+            "valid": False,
+            "impact_description": "",
+            "message": HIGHER_ED_IMPACT_TRACK_NOT_FOUND_MESSAGE,
+        }
+
+    try:
+        result = await db.execute(
+            select(SecondaryTrackHigherEdImpact).where(
+                SecondaryTrackHigherEdImpact.track_id == parsed_track_id
+            )
+        )
+        impact = result.scalars().one_or_none()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load secondary track higher-ed impact.", extra={"track_id": track_id}
+        )
+        raise
+
+    if impact is None:
+        logger.info("No higher-ed impact record found for track.", extra={"track_id": track_id})
+        return {
+            "valid": True,
+            "impact_description": "",
+            "message": HIGHER_ED_IMPACT_NO_DATA_MESSAGE,
+        }
+
+    logger.info("Retrieved secondary track higher-ed impact.", extra={"track_id": track_id})
+    return {
+        "valid": True,
+        "impact_description": impact.impact_description or "",
+        "message": impact.message or HIGHER_ED_IMPACT_SUCCESS_MESSAGE,
     }
