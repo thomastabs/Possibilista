@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -12,18 +11,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.profiling import get_db_session
-from backend.models.secondary_track import SecondaryTrack, SecondaryTrackExamRequirement
-from backend.services.secondary_track_service import get_disciplines_for_track
+from backend.models.secondary_track import SecondaryTrack
+from backend.services.secondary_track_service import (
+    get_disciplines_for_track,
+    get_exam_requirements_for_track,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/secondary-tracks", tags=["secondary-tracks"])
-
-EXAM_REQUIREMENTS_INVALID_FORMAT_MESSAGE = "Invalid track ID format."
-EXAM_REQUIREMENTS_UNKNOWN_TRACK_MESSAGE = (
-    "No information is available for that track. Please ask about valid tracks."
-)
-EXAM_REQUIREMENTS_SUCCESS_MESSAGE = "Exam requirements retrieved successfully."
 
 
 class SecondaryTrackOut(BaseModel):
@@ -102,38 +98,7 @@ async def get_secondary_track_exam_requirements(
     logger.info("Received secondary track exam requirements request.", extra={"track_id": track_id})
 
     try:
-        parsed_track_id = UUID(track_id)
-    except ValueError:
-        logger.info("Rejected malformed secondary track id.", extra={"track_id": track_id})
-        return SecondaryTrackExamRequirementsResponse(
-            valid=False,
-            exams=[],
-            message=EXAM_REQUIREMENTS_INVALID_FORMAT_MESSAGE,
-        )
-
-    try:
-        track = await db.get(SecondaryTrack, parsed_track_id)
-    except SQLAlchemyError as exc:
-        logger.exception("Failed to load secondary track.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to load secondary track.",
-        ) from exc
-
-    if track is None:
-        return SecondaryTrackExamRequirementsResponse(
-            valid=False,
-            exams=[],
-            message=EXAM_REQUIREMENTS_UNKNOWN_TRACK_MESSAGE,
-        )
-
-    try:
-        result = await db.execute(
-            select(SecondaryTrackExamRequirement).where(
-                SecondaryTrackExamRequirement.track_id == parsed_track_id
-            )
-        )
-        exam_requirements = result.scalars().all()
+        result = await get_exam_requirements_for_track(db, track_id)
     except SQLAlchemyError as exc:
         logger.exception("Failed to load secondary track exam requirements.")
         raise HTTPException(
@@ -142,10 +107,10 @@ async def get_secondary_track_exam_requirements(
         ) from exc
 
     return SecondaryTrackExamRequirementsResponse(
-        valid=True,
+        valid=result["valid"],
         exams=[
-            ExamRequirementOut(name=exam.exam_name, timing=exam.timing)
-            for exam in exam_requirements
+            ExamRequirementOut(name=exam["exam_name"], timing=exam["timing"])
+            for exam in result["exams"]
         ],
-        message=EXAM_REQUIREMENTS_SUCCESS_MESSAGE,
+        message=result["message"],
     )
