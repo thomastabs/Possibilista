@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api import router as api_router
 from backend.api.secondary_tracks import get_db_session
-from backend.models.secondary_track import SecondaryTrack
+from backend.models.secondary_track import SecondaryTrack, SecondaryTrackDiscipline
 
 
 class DummyResult:
@@ -21,14 +21,21 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, tracks=None, fail=False):
+    def __init__(self, tracks=None, fail=False, track_by_id=None, disciplines=None):
         self.tracks = tracks or []
         self.fail = fail
+        self.track_by_id = track_by_id or {}
+        self.disciplines = disciplines or []
 
     async def execute(self, statement):
         if self.fail:
             raise SQLAlchemyError("boom")
-        return DummyResult(self.tracks)
+        return DummyResult(self.disciplines or self.tracks)
+
+    async def get(self, model, record_id):
+        if self.fail:
+            raise SQLAlchemyError("boom")
+        return self.track_by_id.get(record_id)
 
 
 def _make_test_client(db: DummyDB) -> TestClient:
@@ -71,3 +78,42 @@ def test_get_secondary_tracks_returns_500_on_database_failure():
     response = client.get("/api/v1/secondary-tracks")
 
     assert response.status_code == 500
+
+
+def test_get_disciplines_endpoint_returns_valid_track_disciplines():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description="STEM focused track.")
+    disciplines = [
+        SecondaryTrackDiscipline(id=uuid4(), track_id=track_id, discipline_name="Mathematics"),
+        SecondaryTrackDiscipline(id=uuid4(), track_id=track_id, discipline_name="Physics"),
+    ]
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}, disciplines=disciplines))
+
+    response = client.get(f"/api/v1/secondary-tracks/{track_id}/disciplines")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "disciplines": ["Mathematics", "Physics"],
+        "message": "",
+    }
+
+
+def test_get_disciplines_endpoint_returns_invalid_for_unknown_track():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(f"/api/v1/secondary-tracks/{uuid4()}/disciplines")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["disciplines"] == []
+    assert payload["message"]
+
+
+def test_get_disciplines_endpoint_rejects_malformed_track_id():
+    client = _make_test_client(DummyDB())
+
+    response = client.get("/api/v1/secondary-tracks/not-a-uuid/disciplines")
+
+    assert response.status_code == 400
