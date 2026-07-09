@@ -7,7 +7,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api import router as api_router
 from backend.api.secondary_tracks import get_db_session
-from backend.models.secondary_track import SecondaryTrack, SecondaryTrackDiscipline
+from backend.models.secondary_track import (
+    SecondaryTrack,
+    SecondaryTrackDiscipline,
+    SecondaryTrackExamRequirement,
+)
 from backend.services.secondary_track_service import get_disciplines_for_track
 
 
@@ -23,16 +27,23 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, tracks=None, fail=False, track_by_id=None, disciplines=None):
+    def __init__(self, tracks=None, fail=False, track_by_id=None, disciplines=None, exam_requirements=None):
         self.tracks = tracks or []
         self.fail = fail
         self.track_by_id = track_by_id or {}
         self.disciplines = disciplines or []
+        self.exam_requirements = exam_requirements or []
 
     async def execute(self, statement):
         if self.fail:
             raise SQLAlchemyError("boom")
-        return DummyResult(self.disciplines or self.tracks)
+        entity = statement.column_descriptions[0]["entity"]
+        entity_name = getattr(entity, "__name__", "")
+        if entity_name == "SecondaryTrackDiscipline":
+            return DummyResult(self.disciplines)
+        if entity_name == "SecondaryTrackExamRequirement":
+            return DummyResult(self.exam_requirements)
+        return DummyResult(self.tracks)
 
     async def get(self, model, record_id):
         if self.fail:
@@ -163,3 +174,53 @@ def test_get_disciplines_for_track_returns_invalid_for_malformed_id():
         "disciplines": [],
         "message": "Invalid track ID format.",
     }
+
+
+def test_exam_requirements_endpoint_returns_valid_track_exams():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description="STEM focused track.")
+    exam_requirements = [
+        SecondaryTrackExamRequirement(
+            id=uuid4(), track_id=track_id, exam_name="Mathematics A", timing="End of 12th grade"
+        ),
+        SecondaryTrackExamRequirement(
+            id=uuid4(), track_id=track_id, exam_name="Physics and Chemistry", timing="End of 11th grade"
+        ),
+    ]
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}, exam_requirements=exam_requirements))
+
+    response = client.get(f"/api/v1/secondary-tracks/{track_id}/exam-requirements")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "exams": [
+            {"name": "Mathematics A", "timing": "End of 12th grade"},
+            {"name": "Physics and Chemistry", "timing": "End of 11th grade"},
+        ],
+        "message": "Exam requirements retrieved successfully.",
+    }
+
+
+def test_exam_requirements_endpoint_returns_invalid_for_unknown_track():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(f"/api/v1/secondary-tracks/{uuid4()}/exam-requirements")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["exams"] == []
+    assert "no information is available" in payload["message"].lower()
+
+
+def test_exam_requirements_endpoint_rejects_malformed_track_id():
+    client = _make_test_client(DummyDB())
+
+    response = client.get("/api/v1/secondary-tracks/not-a-uuid/exam-requirements")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["exams"] == []
+    assert "invalid" in payload["message"].lower()
