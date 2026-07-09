@@ -129,11 +129,9 @@ test("shows a notice when information is insufficient", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-  expect(
-    screen.getByRole("status", {
-      name: "The system cannot answer this question based on the current official sources.",
-    }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "The system cannot answer this question based on the current official sources.",
+  );
 });
 
 test("shows an alert when human confirmation is required", async () => {
