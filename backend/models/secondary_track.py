@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -25,6 +25,11 @@ class SecondaryTrack(Base):
     exam_requirements: Mapped[list["SecondaryTrackExamRequirement"]] = relationship(
         back_populates="track",
         cascade="all, delete-orphan",
+    )
+    discipline_combination: Mapped["SecondaryTrackDisciplineCombination | None"] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -57,4 +62,24 @@ class SecondaryTrackExamRequirement(Base):
     timing: Mapped[str] = mapped_column(String(255), nullable=False)
 
     track: Mapped[SecondaryTrack] = relationship(back_populates="exam_requirements")
+
+
+class SecondaryTrackDisciplineCombination(Base):
+    __tablename__ = "secondary_track_discipline_combination"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    track_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("secondary_track.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    trienais: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    bienais: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    anuais: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    combinations: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    track: Mapped[SecondaryTrack] = relationship(back_populates="discipline_combination")
 
