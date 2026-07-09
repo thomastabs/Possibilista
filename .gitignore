@@ -1,2 +1,4 @@
 /Apex Spec Context
 /Developer Packs
+node_modules/
+.vite/
