@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -11,11 +12,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.profiling import get_db_session
-from backend.models.secondary_track import SecondaryTrack
+from backend.models.secondary_track import SecondaryTrack, SecondaryTrackHigherEdImpact
 from backend.services.secondary_track_service import (
     get_discipline_combinations_for_track,
     get_disciplines_for_track,
     get_exam_requirements_for_track,
+)
+
+HIGHER_ED_IMPACT_INVALID_FORMAT_MESSAGE = "Invalid track ID format."
+HIGHER_ED_IMPACT_TRACK_NOT_FOUND_MESSAGE = (
+    "The track is not recognized, and no impact information is available for the track."
 )
 
 logger = logging.getLogger(__name__)
@@ -148,3 +154,57 @@ async def get_secondary_track_discipline_combinations(
         ) from exc
 
     return SecondaryTrackDisciplineCombinationsResponse(**result)
+
+
+class SecondaryTrackHigherEdImpactResponse(BaseModel):
+    valid: bool
+    impact_description: str
+    message: str
+
+
+@router.get(
+    "/{track_id}/higher-ed-impact",
+    response_model=SecondaryTrackHigherEdImpactResponse,
+)
+async def get_secondary_track_higher_ed_impact(
+    track_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> SecondaryTrackHigherEdImpactResponse:
+    logger.info("Received secondary track higher-ed impact request.", extra={"track_id": track_id})
+
+    try:
+        parsed_track_id = UUID(track_id)
+    except ValueError:
+        logger.info("Rejected malformed secondary track id.", extra={"track_id": track_id})
+        return SecondaryTrackHigherEdImpactResponse(
+            valid=False,
+            impact_description="",
+            message=HIGHER_ED_IMPACT_INVALID_FORMAT_MESSAGE,
+        )
+
+    try:
+        result = await db.execute(
+            select(SecondaryTrackHigherEdImpact).where(
+                SecondaryTrackHigherEdImpact.track_id == parsed_track_id
+            )
+        )
+        impact = result.scalars().one_or_none()
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load secondary track higher-ed impact.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load secondary track higher-ed impact.",
+        ) from exc
+
+    if impact is None:
+        return SecondaryTrackHigherEdImpactResponse(
+            valid=False,
+            impact_description="",
+            message=HIGHER_ED_IMPACT_TRACK_NOT_FOUND_MESSAGE,
+        )
+
+    return SecondaryTrackHigherEdImpactResponse(
+        valid=True,
+        impact_description=impact.impact_description or "",
+        message=impact.message or "",
+    )
