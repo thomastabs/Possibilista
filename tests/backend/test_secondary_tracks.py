@@ -95,7 +95,7 @@ def test_get_disciplines_endpoint_returns_valid_track_disciplines():
     assert response.json() == {
         "valid": True,
         "disciplines": ["Mathematics", "Physics"],
-        "message": "",
+        "message": "Disciplines retrieved successfully.",
     }
 
 
@@ -116,4 +116,8 @@ def test_get_disciplines_endpoint_rejects_malformed_track_id():
 
     response = client.get("/api/v1/secondary-tracks/not-a-uuid/disciplines")
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["disciplines"] == []
+    assert "invalid" in payload["message"].lower()
