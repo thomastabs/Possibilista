@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from backend.api.profiling import get_db_session
+from backend.models.secondary_track import SecondaryTrack
 from backend.services.higher_ed_service import (
     get_admission_averages_for_course,
     get_compatibility_for_secondary_track,
@@ -20,8 +21,11 @@ from backend.services.higher_ed_service import (
     simulate_eligibility_for_secondary_track,
 )
 
-COMPATIBILITY_FEEDBACK_INVALID_INPUT_MESSAGE = (
-    "Please correct or complete your secondary track input."
+COMPATIBILITY_FEEDBACK_CORRECT_INPUT_MESSAGE = (
+    "Please correct your secondary track input; the track was not recognized."
+)
+COMPATIBILITY_FEEDBACK_COMPLETE_INPUT_MESSAGE = (
+    "Please complete your secondary track input; no compatibility data is available yet."
 )
 COMPATIBILITY_FEEDBACK_NO_COMPATIBLE_COURSES_MESSAGE = (
     "No compatible higher education courses were found for this secondary track."
@@ -232,7 +236,7 @@ async def post_compatibility_feedback(
     )
 
     try:
-        UUID(payload.secondary_track_id)
+        parsed_track_id = UUID(payload.secondary_track_id)
     except ValueError:
         logger.info(
             "Rejected malformed secondary track id.",
@@ -240,7 +244,26 @@ async def post_compatibility_feedback(
         )
         return CompatibilityFeedbackResponse(
             compatible=False,
-            message=COMPATIBILITY_FEEDBACK_INVALID_INPUT_MESSAGE,
+            message=COMPATIBILITY_FEEDBACK_CORRECT_INPUT_MESSAGE,
+        )
+
+    try:
+        track = await db.get(SecondaryTrack, parsed_track_id)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load secondary track.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load compatibility data for the selected secondary track.",
+        ) from exc
+
+    if track is None:
+        logger.info(
+            "Secondary track not found.",
+            extra={"secondary_track_id": payload.secondary_track_id},
+        )
+        return CompatibilityFeedbackResponse(
+            compatible=False,
+            message=COMPATIBILITY_FEEDBACK_CORRECT_INPUT_MESSAGE,
         )
 
     try:
@@ -253,6 +276,16 @@ async def post_compatibility_feedback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to load compatibility data for the selected secondary track.",
         ) from exc
+
+    if not compatibilities:
+        logger.info(
+            "No compatibility data found for secondary track.",
+            extra={"secondary_track_id": payload.secondary_track_id},
+        )
+        return CompatibilityFeedbackResponse(
+            compatible=False,
+            message=COMPATIBILITY_FEEDBACK_COMPLETE_INPUT_MESSAGE,
+        )
 
     if any(compatibility.compatible for compatibility in compatibilities):
         return CompatibilityFeedbackResponse(

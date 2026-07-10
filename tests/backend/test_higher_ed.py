@@ -313,6 +313,7 @@ def test_admission_averages_endpoint_returns_500_on_database_failure():
 
 def test_compatibility_feedback_endpoint_returns_no_compatible_courses_message():
     track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
     course_id = uuid4()
     compatibilities = [
         HigherEdCourseCompatibility(
@@ -323,7 +324,9 @@ def test_compatibility_feedback_endpoint_returns_no_compatible_courses_message()
             message="",
         ),
     ]
-    client = _make_test_client(DummyDB(compatibilities=compatibilities))
+    client = _make_test_client(
+        DummyDB(track_by_id={track_id: track}, compatibilities=compatibilities)
+    )
 
     response = client.post(
         "/api/v1/higher-ed/compatibility-feedback",
@@ -339,6 +342,7 @@ def test_compatibility_feedback_endpoint_returns_no_compatible_courses_message()
 
 def test_compatibility_feedback_endpoint_returns_compatible_true_when_a_match_exists():
     track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
     course_id = uuid4()
     compatibilities = [
         HigherEdCourseCompatibility(
@@ -349,7 +353,9 @@ def test_compatibility_feedback_endpoint_returns_compatible_true_when_a_match_ex
             message="",
         ),
     ]
-    client = _make_test_client(DummyDB(compatibilities=compatibilities))
+    client = _make_test_client(
+        DummyDB(track_by_id={track_id: track}, compatibilities=compatibilities)
+    )
 
     response = client.post(
         "/api/v1/higher-ed/compatibility-feedback",
@@ -375,6 +381,38 @@ def test_compatibility_feedback_endpoint_prompts_correction_for_malformed_track_
     payload = response.json()
     assert payload["compatible"] is False
     assert "correct" in payload["message"].lower()
+
+
+def test_compatibility_feedback_endpoint_prompts_correction_for_nonexistent_track():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": str(uuid4())},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["compatible"] is False
+    assert "correct" in payload["message"].lower()
+
+
+def test_compatibility_feedback_endpoint_prompts_completion_for_track_without_compatibility_data():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}))
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": str(track_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["compatible"] is False
+    assert "complete" in payload["message"].lower()
 
 
 def test_compatibility_feedback_endpoint_requires_bearer_authentication():
