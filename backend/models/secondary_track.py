@@ -40,6 +40,10 @@ class SecondaryTrack(Base):
         back_populates="track",
         cascade="all, delete-orphan",
     )
+    eligibility_simulation_results: Mapped[list["EligibilitySimulationResult"]] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+    )
 
 
 class SecondaryTrackDiscipline(Base):
