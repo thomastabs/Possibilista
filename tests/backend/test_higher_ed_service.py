@@ -10,6 +10,7 @@ from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntrance
 from backend.models.secondary_track import SecondaryTrack
 from backend.services.higher_ed_service import (
     get_admission_averages_for_course,
+    get_compatibility_for_secondary_track,
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
     simulate_eligibility_for_secondary_track,
@@ -288,3 +289,39 @@ def test_get_admission_averages_for_course_returns_unavailable_for_malformed_id(
     assert result["admission_average"] is None
     assert result["exam_weights"] == []
     assert "not available" in result["message"].lower()
+
+
+def test_compatibility_queries_returns_records_for_valid_track():
+    track_id = uuid4()
+    course_id = uuid4()
+    compatibilities = [
+        HigherEdCourseCompatibility(
+            id=uuid4(),
+            course_id=course_id,
+            secondary_track_id=track_id,
+            compatible=True,
+            message="",
+        ),
+    ]
+    db = DummyDB(compatibilities=compatibilities)
+
+    result = asyncio.run(get_compatibility_for_secondary_track(db, str(track_id)))
+
+    assert result == compatibilities
+    assert result[0].compatible is True
+
+
+def test_compatibility_queries_returns_empty_list_when_no_records_exist():
+    db = DummyDB()
+
+    result = asyncio.run(get_compatibility_for_secondary_track(db, str(uuid4())))
+
+    assert result == []
+
+
+def test_compatibility_queries_returns_empty_list_for_malformed_id():
+    db = DummyDB()
+
+    result = asyncio.run(get_compatibility_for_secondary_track(db, "not-a-uuid"))
+
+    assert result == []

@@ -285,3 +285,41 @@ async def get_admission_averages_for_course(db: AsyncSession, course_id: str) ->
         "exam_weights": list(admission_average.exam_weights),
         "message": "",
     }
+
+
+async def get_compatibility_for_secondary_track(
+    db: AsyncSession, secondary_track_id: str
+) -> list[HigherEdCourseCompatibility]:
+    """Return the raw HigherEdCourseCompatibility rows for a secondary track.
+
+    Returns an empty list for a malformed secondary_track_id or when no
+    compatibility records exist for the track, rather than raising.
+    """
+    try:
+        parsed_track_id = UUID(secondary_track_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info(
+            "Rejected malformed secondary track id.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        return []
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourseCompatibility).where(
+                HigherEdCourseCompatibility.secondary_track_id == parsed_track_id
+            )
+        )
+        compatibilities = result.scalars().all()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load course compatibility data.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        raise
+
+    logger.info(
+        "Retrieved course compatibility data for secondary track.",
+        extra={"secondary_track_id": secondary_track_id, "record_count": len(compatibilities)},
+    )
+    return list(compatibilities)
