@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 
 type InterestPreferencesScreenProps = {
   bearerToken?: string | null;
+  sessionId?: string | null;
   schoolYear?: number | null;
   nextPath?: string;
   onNavigate?: (path: string) => void;
@@ -28,6 +29,7 @@ const MOTIVATIONS_PATH = "/motivations";
 
 export function InterestPreferencesScreen({
   bearerToken,
+  sessionId,
   schoolYear,
   nextPath = MOTIVATIONS_PATH,
   onNavigate,
@@ -88,18 +90,23 @@ export function InterestPreferencesScreen({
       return;
     }
 
+    if (!sessionId) {
+      setError("A session id is required to continue.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
-      const response = await fetch("/api/v1/profiling/interests", {
+      const response = await fetch("/api/v1/session/interests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${bearerToken}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ session_id: sessionId, ...payload }),
       });
 
       const data: ApiResponse = await response.json().catch(() => ({}));

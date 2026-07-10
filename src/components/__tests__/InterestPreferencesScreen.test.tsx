@@ -13,6 +13,7 @@ test("renders interests and allows multiple selection", () => {
   render(
     <InterestPreferencesScreen
       bearerToken="token"
+      sessionId="session-1"
       schoolYear={9}
       interestsQuestions={["Art", "Science"]}
       onNavigate={jest.fn()}
@@ -33,6 +34,7 @@ test("submits selected interests and navigates", async () => {
   render(
     <InterestPreferencesScreen
       bearerToken="token"
+      sessionId="session-1"
       schoolYear={9}
       interestsQuestions={["Art", "Science"]}
       onNavigate={onNavigate}
@@ -44,14 +46,14 @@ test("submits selected interests and navigates", async () => {
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/profiling/interests",
+    "/api/v1/session/interests",
     expect.objectContaining({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token",
         "Content-Type": "application/json",
       }),
-      body: JSON.stringify({ interests: ["Art"], skipped: false }),
+      body: JSON.stringify({ session_id: "session-1", interests: ["Art"], skipped: false }),
     }),
   );
   expect(onNavigate).toHaveBeenCalledWith("/motivations");
@@ -67,6 +69,7 @@ test("allows adding a custom interest", async () => {
   render(
     <InterestPreferencesScreen
       bearerToken="token"
+      sessionId="session-1"
       schoolYear={9}
       onNavigate={onNavigate}
     />,
@@ -80,9 +83,9 @@ test("allows adding a custom interest", async () => {
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/profiling/interests",
+    "/api/v1/session/interests",
     expect.objectContaining({
-      body: JSON.stringify({ interests: ["Robotics"], skipped: false }),
+      body: JSON.stringify({ session_id: "session-1", interests: ["Robotics"], skipped: false }),
     }),
   );
   expect(onNavigate).toHaveBeenCalledWith("/motivations");
@@ -96,27 +99,43 @@ test("skips interest questions and navigates", async () => {
   });
 
   render(
-    <InterestPreferencesScreen bearerToken="token" schoolYear={9} onNavigate={onNavigate} />,
+    <InterestPreferencesScreen
+      bearerToken="token"
+      sessionId="session-1"
+      schoolYear={9}
+      onNavigate={onNavigate}
+    />,
   );
 
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/profiling/interests",
+    "/api/v1/session/interests",
     expect.objectContaining({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token",
       }),
-      body: JSON.stringify({ interests: [], skipped: true }),
+      body: JSON.stringify({ session_id: "session-1", interests: [], skipped: true }),
     }),
   );
   expect(onNavigate).toHaveBeenCalledWith("/motivations");
 });
 
 test("blocks non-9th grade students", () => {
-  render(<InterestPreferencesScreen bearerToken="token" schoolYear={10} />);
+  render(<InterestPreferencesScreen bearerToken="token" sessionId="session-1" schoolYear={10} />);
 
   expect(screen.getByText("This screen is only available to 9.º ano students.")).toBeInTheDocument();
+});
+
+test("shows an error when no session id is provided", async () => {
+  render(<InterestPreferencesScreen bearerToken="token" schoolYear={9} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+  expect(
+    await screen.findByText("A session id is required to continue."),
+  ).toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
