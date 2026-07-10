@@ -21,3 +21,7 @@ class HigherEdCourse(Base):
         back_populates="course",
         cascade="all, delete-orphan",
     )
+    entrance_exams: Mapped[list["HigherEdCourseEntranceExam"]] = relationship(
+        back_populates="course",
+        cascade="all, delete-orphan",
+    )
