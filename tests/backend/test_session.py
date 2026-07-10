@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -7,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api import router as api_router
 from backend.api.session import get_db_session
 from backend.models.student_session import StudentSession
+from backend.services.session_service import record_student_interests
 
 
 class DummyResult:
@@ -236,3 +238,58 @@ def test_post_session_interests_returns_500_on_database_failure():
     )
 
     assert response.status_code == 500
+
+
+def test_record_student_interests_saves_normalized_interests():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+
+    saved = asyncio.run(record_student_interests(db, session, ["Robotics", " Music ", ""], False))
+
+    assert saved == 2
+    assert db.committed is True
+    assert [record.interest for record in db.added] == ["Robotics", "Music"]
+    assert all(record.skipped is False for record in db.added)
+    assert all(record.session_id == session_id for record in db.added)
+
+
+def test_record_student_interests_saves_skip_marker_when_skipped():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+
+    saved = asyncio.run(record_student_interests(db, session, [], True))
+
+    assert saved == 0
+    assert db.committed is True
+    assert len(db.added) == 1
+    assert db.added[0].interest is None
+    assert db.added[0].skipped is True
+
+
+def test_record_student_interests_saves_skip_marker_when_interests_empty_even_if_not_skipped():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+
+    saved = asyncio.run(record_student_interests(db, session, ["   "], False))
+
+    assert saved == 0
+    assert len(db.added) == 1
+    assert db.added[0].skipped is True
+
+
+def test_record_student_interests_raises_http_500_on_commit_failure():
+    from fastapi import HTTPException
+
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session, fail_commit=True)
+
+    try:
+        asyncio.run(record_student_interests(db, session, ["Music"], False))
+    except HTTPException as exc:
+        assert exc.status_code == 500
+    else:
+        raise AssertionError("Expected HTTPException on commit failure.")

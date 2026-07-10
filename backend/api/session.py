@@ -12,8 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
-from backend.models.student_interest import StudentInterest
-from backend.services.session_service import validate_school_year
+from backend.services.session_service import record_student_interests, validate_school_year
 
 logger = logging.getLogger(__name__)
 
@@ -193,40 +192,19 @@ async def post_session_interests(
 ) -> SessionInterestsResponse:
     student_session = await resolve_student_session(db, payload.session_id)
 
-    normalized_interests = [
-        interest.strip() for interest in payload.interests if interest.strip()
-    ]
-
     logger.info(
         "Received interests input.",
-        extra={
-            "session_id": str(student_session.id),
-            "skipped": payload.skipped,
-            "interest_count": len(normalized_interests),
-        },
+        extra={"session_id": str(student_session.id), "skipped": payload.skipped},
     )
 
-    if payload.skipped or not normalized_interests:
-        records = [
-            StudentInterest(session_id=student_session.id, interest=None, skipped=True)
-        ]
-        message = "Continuing with general guidance."
-    else:
-        records = [
-            StudentInterest(session_id=student_session.id, interest=interest, skipped=False)
-            for interest in normalized_interests
-        ]
-        message = "Interests saved to tailor exploration."
+    saved_count = await record_student_interests(
+        db, student_session, payload.interests, payload.skipped
+    )
 
-    try:
-        db.add_all(records)
-        await db.commit()
-    except SQLAlchemyError as exc:
-        await db.rollback()
-        logger.exception("Failed to persist student interests.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to save the student's interests.",
-        ) from exc
+    message = (
+        "Interests saved to tailor exploration."
+        if saved_count > 0
+        else "Continuing with general guidance."
+    )
 
     return SessionInterestsResponse(status="success", message=message)
