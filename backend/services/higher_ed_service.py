@@ -12,11 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.higher_ed_course import HigherEdCourse
 from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
+from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
 from backend.models.secondary_track import SecondaryTrack
 
 logger = logging.getLogger(__name__)
 
 NO_DATA_MESSAGE = "No data is available for the entered secondary track."
+
+ENTRANCE_EXAMS_UNAVAILABLE_MESSAGE = (
+    "Exam requirements are unavailable for the selected course."
+)
 
 
 async def get_compatible_higher_ed_courses(db: AsyncSession, secondary_track_id: str) -> dict[str, Any]:
@@ -76,5 +81,52 @@ async def get_compatible_higher_ed_courses(db: AsyncSession, secondary_track_id:
     )
     return {
         "courses": [{"id": str(course.id), "name": course.name} for course in courses],
+        "message": "",
+    }
+
+
+async def get_entrance_exams_for_course(db: AsyncSession, course_id: str) -> dict[str, Any]:
+    try:
+        parsed_course_id = UUID(course_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info("Rejected malformed course id.", extra={"course_id": course_id})
+        return {"available": False, "exams": [], "message": ENTRANCE_EXAMS_UNAVAILABLE_MESSAGE}
+
+    try:
+        course = await db.get(HigherEdCourse, parsed_course_id)
+    except SQLAlchemyError:
+        logger.exception("Failed to load higher-ed course.", extra={"course_id": course_id})
+        raise
+
+    if course is None:
+        logger.info("Higher-ed course not found.", extra={"course_id": course_id})
+        return {"available": False, "exams": [], "message": ENTRANCE_EXAMS_UNAVAILABLE_MESSAGE}
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourseEntranceExam).where(
+                HigherEdCourseEntranceExam.course_id == parsed_course_id
+            )
+        )
+        exams = result.scalars().all()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load entrance exams for course.", extra={"course_id": course_id}
+        )
+        raise
+
+    if not exams:
+        logger.info(
+            "No entrance exams found for course.", extra={"course_id": course_id}
+        )
+        return {"available": False, "exams": [], "message": ENTRANCE_EXAMS_UNAVAILABLE_MESSAGE}
+
+    logger.info(
+        "Retrieved entrance exams for course.",
+        extra={"course_id": course_id, "exam_count": len(exams)},
+    )
+    return {
+        "available": True,
+        "exams": [{"name": exam.exam_name, "weight": exam.weight} for exam in exams],
         "message": "",
     }

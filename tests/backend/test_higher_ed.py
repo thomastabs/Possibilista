@@ -69,7 +69,7 @@ def test_entrance_exam_endpoint_returns_available_exams_for_valid_course():
     }
 
 
-def test_entrance_exam_endpoint_returns_available_with_empty_exams_for_course_without_exams():
+def test_entrance_exam_endpoint_returns_unavailable_for_course_without_exams():
     course_id = uuid4()
     course = HigherEdCourse(id=course_id, name="Computer Science")
     client = _make_test_client(DummyDB(course_by_id={course_id: course}))
@@ -77,7 +77,10 @@ def test_entrance_exam_endpoint_returns_available_with_empty_exams_for_course_wi
     response = client.get(f"/api/v1/higher-ed/courses/{course_id}/entrance-exams")
 
     assert response.status_code == 200
-    assert response.json() == {"available": True, "exams": [], "message": ""}
+    payload = response.json()
+    assert payload["available"] is False
+    assert payload["exams"] == []
+    assert "unavailable" in payload["message"].lower()
 
 
 def test_entrance_exam_endpoint_returns_unavailable_for_nonexistent_course():
