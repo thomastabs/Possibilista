@@ -7,15 +7,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from backend.api.profiling import get_db_session
+from backend.models.higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from backend.services.higher_ed_service import (
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
     simulate_eligibility_for_secondary_track,
+)
+
+ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE = (
+    "Admission criteria information is not available for the selected course."
 )
 
 logger = logging.getLogger(__name__)
@@ -145,4 +151,72 @@ async def post_eligibility_simulation(
         eligible_courses=[HigherEdCourseOut(**course) for course in result["eligible_courses"]],
         incomplete_data=result["incomplete_data"],
         message=result["message"],
+    )
+
+
+class ExamWeightOut(BaseModel):
+    exam_name: str
+    weight: float
+
+
+class HigherEdCourseAdmissionAveragesResponse(BaseModel):
+    available: bool
+    admission_average: float | None
+    exam_weights: list[ExamWeightOut]
+    message: str
+
+
+@router.get(
+    "/courses/{course_id}/admission-averages",
+    response_model=HigherEdCourseAdmissionAveragesResponse,
+)
+async def get_higher_ed_course_admission_averages(
+    course_id: str,
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> HigherEdCourseAdmissionAveragesResponse:
+    logger.info(
+        "Received admission averages request.",
+        extra={"course_id": course_id, "scheme": credentials.scheme},
+    )
+
+    try:
+        parsed_course_id = UUID(course_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="course_id must be a valid UUID.",
+        ) from exc
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourseAdmissionAverage).where(
+                HigherEdCourseAdmissionAverage.course_id == parsed_course_id
+            )
+        )
+        admission_average = result.scalars().one_or_none()
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load admission averages.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load admission averages.",
+        ) from exc
+
+    if (
+        admission_average is None
+        or admission_average.admission_average is None
+        or not admission_average.exam_weights
+    ):
+        return HigherEdCourseAdmissionAveragesResponse(
+            available=False,
+            admission_average=None,
+            exam_weights=[],
+            message=ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE,
+        )
+
+    return HigherEdCourseAdmissionAveragesResponse(
+        available=True,
+        admission_average=admission_average.admission_average,
+        exam_weights=[ExamWeightOut(**weight) for weight in admission_average.exam_weights],
+        message="",
     )

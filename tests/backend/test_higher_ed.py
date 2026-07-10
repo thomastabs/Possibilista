@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api import router as api_router
 from backend.api.higher_ed import get_db_session
 from backend.models.higher_ed_course import HigherEdCourse
+from backend.models.higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
 from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
 from backend.models.secondary_track import SecondaryTrack
@@ -22,6 +23,9 @@ class DummyResult:
     def all(self):
         return self._records
 
+    def one_or_none(self):
+        return self._records[0] if self._records else None
+
 
 class DummyDB:
     def __init__(
@@ -31,6 +35,7 @@ class DummyDB:
         exams=None,
         courses=None,
         compatibilities=None,
+        admission_average=None,
         fail=False,
     ):
         self.course_by_id = course_by_id or {}
@@ -38,6 +43,7 @@ class DummyDB:
         self.exams = exams or []
         self.courses = courses or []
         self.compatibilities = compatibilities or []
+        self.admission_average = admission_average
         self.fail = fail
 
     async def get(self, model, record_id):
@@ -56,6 +62,9 @@ class DummyDB:
             return DummyResult(self.compatibilities)
         if entity_name == "HigherEdCourse":
             return DummyResult(self.courses)
+        if entity_name == "HigherEdCourseAdmissionAverage":
+            records = [self.admission_average] if self.admission_average else []
+            return DummyResult(records)
         return DummyResult(self.exams)
 
 
@@ -208,6 +217,95 @@ def test_simulate_eligibility_endpoint_returns_500_on_database_failure():
         "/api/v1/higher-ed/eligibility-simulation",
         headers={"Authorization": "Bearer token"},
         json={"secondary_track_id": str(uuid4())},
+    )
+
+    assert response.status_code == 500
+
+
+def test_admission_averages_endpoint_returns_available_data_for_valid_course():
+    course_id = uuid4()
+    admission_average = HigherEdCourseAdmissionAverage(
+        id=uuid4(),
+        course_id=course_id,
+        admission_average=16.5,
+        exam_weights=[{"exam_name": "Mathematics A", "weight": 0.4}],
+        message="",
+    )
+    client = _make_test_client(DummyDB(admission_average=admission_average))
+
+    response = client.get(
+        f"/api/v1/higher-ed/courses/{course_id}/admission-averages",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": True,
+        "admission_average": 16.5,
+        "exam_weights": [{"exam_name": "Mathematics A", "weight": 0.4}],
+        "message": "",
+    }
+
+
+def test_admission_averages_endpoint_returns_unavailable_for_missing_data():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        f"/api/v1/higher-ed/courses/{uuid4()}/admission-averages",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is False
+    assert payload["admission_average"] is None
+    assert payload["exam_weights"] == []
+    assert "not available" in payload["message"].lower()
+
+
+def test_admission_averages_endpoint_returns_unavailable_when_admission_average_is_null():
+    course_id = uuid4()
+    admission_average = HigherEdCourseAdmissionAverage(
+        id=uuid4(), course_id=course_id, admission_average=None, exam_weights=None, message=""
+    )
+    client = _make_test_client(DummyDB(admission_average=admission_average))
+
+    response = client.get(
+        f"/api/v1/higher-ed/courses/{course_id}/admission-averages",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available"] is False
+    assert "not available" in payload["message"].lower()
+
+
+def test_admission_averages_endpoint_rejects_malformed_course_id():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/higher-ed/courses/not-a-uuid/admission-averages",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_admission_averages_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(f"/api/v1/higher-ed/courses/{uuid4()}/admission-averages")
+
+    assert response.status_code in (401, 403)
+
+
+def test_admission_averages_endpoint_returns_500_on_database_failure():
+    client = _make_test_client(DummyDB(fail=True))
+
+    response = client.get(
+        f"/api/v1/higher-ed/courses/{uuid4()}/admission-averages",
+        headers={"Authorization": "Bearer token"},
     )
 
     assert response.status_code == 500
