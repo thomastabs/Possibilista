@@ -44,6 +44,23 @@ class SchoolYearResponse(BaseModel):
     message: str
 
 
+MIN_AGE = 9
+MAX_AGE = 12
+
+AGE_SUCCESS_MESSAGE = "Age accepted."
+AGE_INVALID_MESSAGE = f"Please provide a valid age between {MIN_AGE} and {MAX_AGE}."
+
+
+class SessionAgeRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    age: int
+
+
+class SessionAgeResponse(BaseModel):
+    valid: bool
+    message: str
+
+
 @router.post("/name", response_model=SessionNameResponse)
 async def post_session_name(
     payload: SessionNameRequest,
@@ -119,3 +136,38 @@ async def post_school_year(
         ) from exc
 
     return SchoolYearResponse(valid=True, message=SCHOOL_YEAR_SUCCESS_MESSAGE)
+
+
+@router.post("/age", response_model=SessionAgeResponse)
+async def post_session_age(
+    payload: SessionAgeRequest,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> SessionAgeResponse:
+    student_session = await resolve_student_session(db, payload.session_id)
+
+    logger.info(
+        "Received age input.",
+        extra={"session_id": str(student_session.id), "age": payload.age},
+    )
+
+    if not (MIN_AGE <= payload.age <= MAX_AGE):
+        logger.info(
+            "Rejected age outside allowed range.",
+            extra={"session_id": str(student_session.id), "age": payload.age},
+        )
+        return SessionAgeResponse(valid=False, message=AGE_INVALID_MESSAGE)
+
+    student_session.age = payload.age
+
+    try:
+        await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Failed to persist student session age.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the student's age.",
+        ) from exc
+
+    return SessionAgeResponse(valid=True, message=AGE_SUCCESS_MESSAGE)
