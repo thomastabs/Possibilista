@@ -14,9 +14,20 @@ from pydantic import BaseModel, Field
 from backend.api.profiling import get_db_session
 from backend.services.higher_ed_service import (
     get_admission_averages_for_course,
+    get_compatibility_for_secondary_track,
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
     simulate_eligibility_for_secondary_track,
+)
+
+COMPATIBILITY_FEEDBACK_INVALID_INPUT_MESSAGE = (
+    "Please correct or complete your secondary track input."
+)
+COMPATIBILITY_FEEDBACK_NO_COMPATIBLE_COURSES_MESSAGE = (
+    "No compatible higher education courses were found for this secondary track."
+)
+COMPATIBILITY_FEEDBACK_SUCCESS_MESSAGE = (
+    "Compatible higher education courses were found for this secondary track."
 )
 
 logger = logging.getLogger(__name__)
@@ -197,4 +208,59 @@ async def get_higher_ed_course_admission_averages(
         admission_average=result["admission_average"],
         exam_weights=[ExamWeightOut(**weight) for weight in result["exam_weights"]],
         message=result["message"],
+    )
+
+
+class CompatibilityFeedbackRequest(BaseModel):
+    secondary_track_id: str = Field(min_length=1)
+
+
+class CompatibilityFeedbackResponse(BaseModel):
+    compatible: bool
+    message: str
+
+
+@router.post("/compatibility-feedback", response_model=CompatibilityFeedbackResponse)
+async def post_compatibility_feedback(
+    payload: CompatibilityFeedbackRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> CompatibilityFeedbackResponse:
+    logger.info(
+        "Received compatibility feedback request.",
+        extra={"secondary_track_id": payload.secondary_track_id, "scheme": credentials.scheme},
+    )
+
+    try:
+        UUID(payload.secondary_track_id)
+    except ValueError:
+        logger.info(
+            "Rejected malformed secondary track id.",
+            extra={"secondary_track_id": payload.secondary_track_id},
+        )
+        return CompatibilityFeedbackResponse(
+            compatible=False,
+            message=COMPATIBILITY_FEEDBACK_INVALID_INPUT_MESSAGE,
+        )
+
+    try:
+        compatibilities = await get_compatibility_for_secondary_track(
+            db, payload.secondary_track_id
+        )
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load compatibility data.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load compatibility data for the selected secondary track.",
+        ) from exc
+
+    if any(compatibility.compatible for compatibility in compatibilities):
+        return CompatibilityFeedbackResponse(
+            compatible=True,
+            message=COMPATIBILITY_FEEDBACK_SUCCESS_MESSAGE,
+        )
+
+    return CompatibilityFeedbackResponse(
+        compatible=False,
+        message=COMPATIBILITY_FEEDBACK_NO_COMPATIBLE_COURSES_MESSAGE,
     )

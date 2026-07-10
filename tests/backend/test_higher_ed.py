@@ -309,3 +309,92 @@ def test_admission_averages_endpoint_returns_500_on_database_failure():
     )
 
     assert response.status_code == 500
+
+
+def test_compatibility_feedback_endpoint_returns_no_compatible_courses_message():
+    track_id = uuid4()
+    course_id = uuid4()
+    compatibilities = [
+        HigherEdCourseCompatibility(
+            id=uuid4(),
+            course_id=course_id,
+            secondary_track_id=track_id,
+            compatible=False,
+            message="",
+        ),
+    ]
+    client = _make_test_client(DummyDB(compatibilities=compatibilities))
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": str(track_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["compatible"] is False
+    assert "no compatible higher education courses" in payload["message"].lower()
+
+
+def test_compatibility_feedback_endpoint_returns_compatible_true_when_a_match_exists():
+    track_id = uuid4()
+    course_id = uuid4()
+    compatibilities = [
+        HigherEdCourseCompatibility(
+            id=uuid4(),
+            course_id=course_id,
+            secondary_track_id=track_id,
+            compatible=True,
+            message="",
+        ),
+    ]
+    client = _make_test_client(DummyDB(compatibilities=compatibilities))
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": str(track_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["compatible"] is True
+
+
+def test_compatibility_feedback_endpoint_prompts_correction_for_malformed_track_id():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": "not-a-uuid"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["compatible"] is False
+    assert "correct" in payload["message"].lower()
+
+
+def test_compatibility_feedback_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        json={"secondary_track_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_compatibility_feedback_endpoint_returns_500_on_database_failure():
+    client = _make_test_client(DummyDB(fail=True))
+
+    response = client.post(
+        "/api/v1/higher-ed/compatibility-feedback",
+        headers={"Authorization": "Bearer token"},
+        json={"secondary_track_id": str(uuid4())},
+    )
+
+    assert response.status_code == 500
