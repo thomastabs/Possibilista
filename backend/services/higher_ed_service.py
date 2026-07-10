@@ -23,6 +23,11 @@ ENTRANCE_EXAMS_UNAVAILABLE_MESSAGE = (
     "Exam requirements are unavailable for the selected course."
 )
 
+ELIGIBILITY_INCOMPLETE_DATA_MESSAGE = (
+    "Eligibility cannot be fully assessed due to incomplete or missing secondary track data."
+)
+ELIGIBILITY_SUCCESS_MESSAGE = "Eligibility simulation completed successfully."
+
 
 async def get_compatible_higher_ed_courses(db: AsyncSession, secondary_track_id: str) -> dict[str, Any]:
     try:
@@ -129,4 +134,99 @@ async def get_entrance_exams_for_course(db: AsyncSession, course_id: str) -> dic
         "available": True,
         "exams": [{"name": exam.exam_name, "weight": exam.weight} for exam in exams],
         "message": "",
+    }
+
+
+async def simulate_eligibility_for_secondary_track(
+    db: AsyncSession, secondary_track_id: str
+) -> dict[str, Any]:
+    try:
+        parsed_track_id = UUID(secondary_track_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info(
+            "Rejected malformed secondary track id.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        return {
+            "eligible_courses": [],
+            "incomplete_data": True,
+            "message": ELIGIBILITY_INCOMPLETE_DATA_MESSAGE,
+        }
+
+    try:
+        track = await db.get(SecondaryTrack, parsed_track_id)
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load secondary track.", extra={"secondary_track_id": secondary_track_id}
+        )
+        raise
+
+    if track is None:
+        logger.info(
+            "Secondary track not found.", extra={"secondary_track_id": secondary_track_id}
+        )
+        return {
+            "eligible_courses": [],
+            "incomplete_data": True,
+            "message": ELIGIBILITY_INCOMPLETE_DATA_MESSAGE,
+        }
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourseCompatibility).where(
+                HigherEdCourseCompatibility.secondary_track_id == parsed_track_id
+            )
+        )
+        compatibilities = result.scalars().all()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load course compatibility data.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        raise
+
+    if not compatibilities:
+        logger.info(
+            "No course compatibility data found for track.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        return {
+            "eligible_courses": [],
+            "incomplete_data": True,
+            "message": ELIGIBILITY_INCOMPLETE_DATA_MESSAGE,
+        }
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourse)
+            .join(
+                HigherEdCourseCompatibility,
+                HigherEdCourseCompatibility.course_id == HigherEdCourse.id,
+            )
+            .where(
+                HigherEdCourseCompatibility.secondary_track_id == parsed_track_id,
+                HigherEdCourseCompatibility.compatible.is_(True),
+            )
+        )
+        eligible_courses = result.scalars().all()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load eligible higher-ed courses.",
+            extra={"secondary_track_id": secondary_track_id},
+        )
+        raise
+
+    logger.info(
+        "Simulated eligibility for secondary track.",
+        extra={
+            "secondary_track_id": secondary_track_id,
+            "eligible_course_count": len(eligible_courses),
+        },
+    )
+    return {
+        "eligible_courses": [
+            {"id": str(course.id), "name": course.name} for course in eligible_courses
+        ],
+        "incomplete_data": False,
+        "message": ELIGIBILITY_SUCCESS_MESSAGE,
     }

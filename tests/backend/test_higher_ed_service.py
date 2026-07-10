@@ -4,11 +4,13 @@ from uuid import uuid4
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.models.higher_ed_course import HigherEdCourse
+from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
 from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
 from backend.models.secondary_track import SecondaryTrack
 from backend.services.higher_ed_service import (
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
+    simulate_eligibility_for_secondary_track,
 )
 
 
@@ -24,11 +26,20 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, track_by_id=None, course_by_id=None, courses=None, exams=None, fail=False):
+    def __init__(
+        self,
+        track_by_id=None,
+        course_by_id=None,
+        courses=None,
+        exams=None,
+        compatibilities=None,
+        fail=False,
+    ):
         self.track_by_id = track_by_id or {}
         self.course_by_id = course_by_id or {}
         self.courses = courses or []
         self.exams = exams or []
+        self.compatibilities = compatibilities or []
         self.fail = fail
 
     async def get(self, model, record_id):
@@ -45,6 +56,8 @@ class DummyDB:
         entity_name = getattr(entity, "__name__", "")
         if entity_name == "HigherEdCourseEntranceExam":
             return DummyResult(self.exams)
+        if entity_name == "HigherEdCourseCompatibility":
+            return DummyResult(self.compatibilities)
         return DummyResult(self.courses)
 
 
@@ -152,3 +165,60 @@ def test_get_entrance_exams_for_course_returns_unavailable_for_malformed_id():
     assert result["available"] is False
     assert result["exams"] == []
     assert "unavailable" in result["message"].lower()
+
+
+def test_simulate_eligibility_returns_eligible_courses_for_complete_track_data():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
+    course_id = uuid4()
+    course = HigherEdCourse(id=course_id, name="Computer Science")
+    compatibilities = [
+        HigherEdCourseCompatibility(
+            id=uuid4(), course_id=course_id, secondary_track_id=track_id, compatible=True, message=""
+        ),
+    ]
+    db = DummyDB(
+        track_by_id={track_id: track},
+        compatibilities=compatibilities,
+        courses=[course],
+    )
+
+    result = asyncio.run(simulate_eligibility_for_secondary_track(db, str(track_id)))
+
+    assert result == {
+        "eligible_courses": [{"id": str(course_id), "name": "Computer Science"}],
+        "incomplete_data": False,
+        "message": "Eligibility simulation completed successfully.",
+    }
+
+
+def test_simulate_eligibility_returns_incomplete_data_for_track_without_compatibility_data():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
+    db = DummyDB(track_by_id={track_id: track})
+
+    result = asyncio.run(simulate_eligibility_for_secondary_track(db, str(track_id)))
+
+    assert result["eligible_courses"] == []
+    assert result["incomplete_data"] is True
+    assert "incomplete" in result["message"].lower()
+
+
+def test_simulate_eligibility_returns_incomplete_data_for_unknown_track():
+    db = DummyDB()
+
+    result = asyncio.run(simulate_eligibility_for_secondary_track(db, str(uuid4())))
+
+    assert result["eligible_courses"] == []
+    assert result["incomplete_data"] is True
+    assert "incomplete" in result["message"].lower()
+
+
+def test_simulate_eligibility_returns_incomplete_data_for_malformed_id():
+    db = DummyDB()
+
+    result = asyncio.run(simulate_eligibility_for_secondary_track(db, "not-a-uuid"))
+
+    assert result["eligible_courses"] == []
+    assert result["incomplete_data"] is True
+    assert "incomplete" in result["message"].lower()
