@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api import router as api_router
 from backend.api.higher_ed import get_db_session
 from backend.models.higher_ed_course import HigherEdCourse
+from backend.models.secondary_track import SecondaryTrack
 
 
 class DummyResult:
@@ -21,9 +22,15 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, courses=None, fail=False):
+    def __init__(self, courses=None, track_by_id=None, fail=False):
         self.courses = courses or []
+        self.track_by_id = track_by_id or {}
         self.fail = fail
+
+    async def get(self, model, record_id):
+        if self.fail:
+            raise SQLAlchemyError("boom")
+        return self.track_by_id.get(record_id)
 
     async def execute(self, statement):
         if self.fail:
@@ -40,11 +47,12 @@ def _make_test_client(db: DummyDB) -> TestClient:
 
 def test_get_higher_ed_courses_returns_compatible_courses_for_valid_track():
     track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
     courses = [
         HigherEdCourse(id=uuid4(), name="Computer Science"),
         HigherEdCourse(id=uuid4(), name="Mechanical Engineering"),
     ]
-    client = _make_test_client(DummyDB(courses=courses))
+    client = _make_test_client(DummyDB(courses=courses, track_by_id={track_id: track}))
 
     response = client.get(
         "/api/v1/higher-ed/courses", params={"secondary_track_id": str(track_id)}
@@ -61,6 +69,21 @@ def test_get_higher_ed_courses_returns_compatible_courses_for_valid_track():
 
 
 def test_get_higher_ed_courses_returns_no_data_message_when_no_compatible_courses():
+    track_id = uuid4()
+    track = SecondaryTrack(id=track_id, name="Science and Technology", description=None)
+    client = _make_test_client(DummyDB(track_by_id={track_id: track}))
+
+    response = client.get(
+        "/api/v1/higher-ed/courses", params={"secondary_track_id": str(track_id)}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["courses"] == []
+    assert "no data is available" in payload["message"].lower()
+
+
+def test_get_higher_ed_courses_returns_no_data_message_for_unknown_track():
     client = _make_test_client(DummyDB())
 
     response = client.get(

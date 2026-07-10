@@ -3,23 +3,18 @@
 from __future__ import annotations
 
 import logging
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from backend.api.profiling import get_db_session
-from backend.models.higher_ed_course import HigherEdCourse
-from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
+from backend.services.higher_ed_service import get_compatible_higher_ed_courses
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/higher-ed", tags=["higher-ed"])
-
-NO_DATA_MESSAGE = "No data is available for the entered secondary track."
 
 
 class HigherEdCourseOut(BaseModel):
@@ -42,27 +37,7 @@ async def get_higher_ed_courses(
     )
 
     try:
-        parsed_track_id = UUID(secondary_track_id)
-    except ValueError:
-        logger.info(
-            "Rejected malformed secondary track id.",
-            extra={"secondary_track_id": secondary_track_id},
-        )
-        return HigherEdCoursesResponse(courses=[], message=NO_DATA_MESSAGE)
-
-    try:
-        result = await db.execute(
-            select(HigherEdCourse)
-            .join(
-                HigherEdCourseCompatibility,
-                HigherEdCourseCompatibility.course_id == HigherEdCourse.id,
-            )
-            .where(
-                HigherEdCourseCompatibility.secondary_track_id == parsed_track_id,
-                HigherEdCourseCompatibility.compatible.is_(True),
-            )
-        )
-        courses = result.scalars().all()
+        result = await get_compatible_higher_ed_courses(db, secondary_track_id)
     except SQLAlchemyError as exc:
         logger.exception("Failed to load compatible higher-ed courses.")
         raise HTTPException(
@@ -70,10 +45,7 @@ async def get_higher_ed_courses(
             detail="Unable to load compatible higher education courses.",
         ) from exc
 
-    if not courses:
-        return HigherEdCoursesResponse(courses=[], message=NO_DATA_MESSAGE)
-
     return HigherEdCoursesResponse(
-        courses=[HigherEdCourseOut(id=str(course.id), name=course.name) for course in courses],
-        message="",
+        courses=[HigherEdCourseOut(**course) for course in result["courses"]],
+        message=result["message"],
     )
