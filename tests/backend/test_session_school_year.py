@@ -43,6 +43,19 @@ def _make_test_client(db: DummyDB) -> TestClient:
     return TestClient(app)
 
 
+def test_student_session_has_nullable_school_year_field():
+    table = StudentSession.__table__
+
+    assert "school_year" in table.columns.keys()
+    assert table.c.school_year.nullable is True
+
+    session_with_year = StudentSession(id=uuid4(), school_year=10)
+    session_without_year = StudentSession(id=uuid4(), school_year=None)
+
+    assert session_with_year.school_year == 10
+    assert session_without_year.school_year is None
+
+
 def test_post_school_year_updates_session_for_valid_year():
     session_id = uuid4()
     session = StudentSession(id=session_id)
