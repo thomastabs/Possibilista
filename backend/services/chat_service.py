@@ -71,13 +71,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     )
     documents = retrieve_official_documents(normalized_message)
     is_interpretative = _contains_any(normalized_message, _INTERPRETATION_TERMS)
-    requires_confirmation = _contains_any(normalized_message, _CRITICAL_DECISION_TERMS)
-
-    if requires_confirmation:
-        logger.info(
-            "Question flagged as requiring human or institutional confirmation.",
-            extra={"session_id": session_id},
-        )
+    matches_critical_terms = _contains_any(normalized_message, _CRITICAL_DECISION_TERMS)
 
     facts: list[str] = []
     interpretations: list[str] = []
@@ -95,6 +89,17 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         )
 
     insufficient_info = not documents and not is_interpretative
+    requires_confirmation = matches_critical_terms or insufficient_info
+
+    if requires_confirmation:
+        logger.info(
+            "Question flagged as requiring human or institutional confirmation.",
+            extra={
+                "session_id": session_id,
+                "matches_critical_terms": matches_critical_terms,
+                "insufficient_info": insufficient_info,
+            },
+        )
 
     if insufficient_info:
         logger.info(
