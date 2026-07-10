@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
+from backend.services.session_service import validate_school_year
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +31,7 @@ class SessionNameResponse(BaseModel):
     message: str
 
 
-MIN_SCHOOL_YEAR = 9
-MAX_SCHOOL_YEAR = 12
-
 SCHOOL_YEAR_SUCCESS_MESSAGE = "School year accepted."
-SCHOOL_YEAR_INVALID_MESSAGE = (
-    f"Please provide a valid school year between {MIN_SCHOOL_YEAR} and {MAX_SCHOOL_YEAR}."
-)
 
 
 class SchoolYearRequest(BaseModel):
@@ -103,12 +98,13 @@ async def post_school_year(
         extra={"session_id": str(student_session.id), "school_year": payload.school_year},
     )
 
-    if not (MIN_SCHOOL_YEAR <= payload.school_year <= MAX_SCHOOL_YEAR):
+    is_valid, invalid_message = validate_school_year(payload.school_year)
+    if not is_valid:
         logger.info(
             "Rejected school year outside allowed range.",
             extra={"session_id": str(student_session.id), "school_year": payload.school_year},
         )
-        return SchoolYearResponse(valid=False, message=SCHOOL_YEAR_INVALID_MESSAGE)
+        return SchoolYearResponse(valid=False, message=invalid_message)
 
     student_session.school_year = payload.school_year
 

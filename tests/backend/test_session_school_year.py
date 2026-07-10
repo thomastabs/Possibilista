@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.api import router as api_router
 from backend.api.session import get_db_session
 from backend.models.student_session import StudentSession
+from backend.services.session_service import validate_school_year
 
 
 class DummyResult:
@@ -161,3 +162,17 @@ def test_post_school_year_returns_500_on_database_failure():
     )
 
     assert response.status_code == 500
+
+
+def test_validate_school_year_accepts_values_in_range():
+    for year in (9, 10, 11, 12):
+        is_valid, message = validate_school_year(year)
+        assert is_valid is True
+        assert message == ""
+
+
+def test_validate_school_year_rejects_values_outside_range():
+    for year in (8, 13, 0, -1):
+        is_valid, message = validate_school_year(year)
+        assert is_valid is False
+        assert "valid school year" in message.lower()
