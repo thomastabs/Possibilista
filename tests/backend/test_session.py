@@ -23,9 +23,13 @@ class DummyDB:
         self.fail_commit = fail_commit
         self.committed = False
         self.rolled_back = False
+        self.added = []
 
     async def execute(self, statement):
         return DummyResult(self.session)
+
+    def add_all(self, records):
+        self.added.extend(records)
 
     async def commit(self):
         if self.fail_commit:
@@ -148,3 +152,87 @@ def test_post_session_age_validation_rejects_value_below_range():
 
     assert response.status_code == 200
     assert response.json()["valid"] is False
+
+
+def test_post_session_interests_stores_interests_and_returns_success():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+    client = _make_test_client(db)
+
+    response = client.post(
+        "/api/v1/session/interests",
+        headers={"Authorization": "Bearer token"},
+        json={
+            "session_id": str(session_id),
+            "interests": ["Robotics", " Music "],
+            "skipped": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert len(db.added) == 2
+    assert {record.interest for record in db.added} == {"Robotics", "Music"}
+    assert all(record.skipped is False for record in db.added)
+    assert all(record.session_id == session_id for record in db.added)
+    assert db.committed is True
+
+
+def test_post_session_interests_records_skip_marker_when_skipped():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+    client = _make_test_client(db)
+
+    response = client.post(
+        "/api/v1/session/interests",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(session_id), "interests": [], "skipped": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert len(db.added) == 1
+    assert db.added[0].skipped is True
+    assert db.added[0].interest is None
+    assert db.committed is True
+
+
+def test_post_session_interests_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/session/interests",
+        json={"session_id": str(uuid4()), "interests": ["Music"], "skipped": False},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_post_session_interests_returns_401_for_unknown_session():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.post(
+        "/api/v1/session/interests",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(uuid4()), "interests": ["Music"], "skipped": False},
+    )
+
+    assert response.status_code == 401
+
+
+def test_post_session_interests_returns_500_on_database_failure():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    client = _make_test_client(DummyDB(session=session, fail_commit=True))
+
+    response = client.post(
+        "/api/v1/session/interests",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(session_id), "interests": ["Music"], "skipped": False},
+    )
+
+    assert response.status_code == 500

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
+from backend.models.student_interest import StudentInterest
 from backend.services.session_service import validate_school_year
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,17 @@ class SessionAgeRequest(BaseModel):
 
 class SessionAgeResponse(BaseModel):
     valid: bool
+    message: str
+
+
+class SessionInterestsRequest(BaseModel):
+    interests: list[str] = Field(default_factory=list)
+    skipped: bool = False
+    session_id: str = Field(min_length=1)
+
+
+class SessionInterestsResponse(BaseModel):
+    status: str
     message: str
 
 
@@ -171,3 +183,50 @@ async def post_session_age(
         ) from exc
 
     return SessionAgeResponse(valid=True, message=AGE_SUCCESS_MESSAGE)
+
+
+@router.post("/interests", response_model=SessionInterestsResponse)
+async def post_session_interests(
+    payload: SessionInterestsRequest,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> SessionInterestsResponse:
+    student_session = await resolve_student_session(db, payload.session_id)
+
+    normalized_interests = [
+        interest.strip() for interest in payload.interests if interest.strip()
+    ]
+
+    logger.info(
+        "Received interests input.",
+        extra={
+            "session_id": str(student_session.id),
+            "skipped": payload.skipped,
+            "interest_count": len(normalized_interests),
+        },
+    )
+
+    if payload.skipped or not normalized_interests:
+        records = [
+            StudentInterest(session_id=student_session.id, interest=None, skipped=True)
+        ]
+        message = "Continuing with general guidance."
+    else:
+        records = [
+            StudentInterest(session_id=student_session.id, interest=interest, skipped=False)
+            for interest in normalized_interests
+        ]
+        message = "Interests saved to tailor exploration."
+
+    try:
+        db.add_all(records)
+        await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Failed to persist student interests.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the student's interests.",
+        ) from exc
+
+    return SessionInterestsResponse(status="success", message=message)
