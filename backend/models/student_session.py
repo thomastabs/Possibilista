@@ -40,3 +40,8 @@ class StudentSession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    secondary_track_memory: Mapped["SessionSecondaryTrackMemory | None"] = relationship(
+        back_populates="session",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
