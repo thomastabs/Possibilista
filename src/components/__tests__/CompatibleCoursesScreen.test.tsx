@@ -73,6 +73,24 @@ test("displays the backend's no-data message for an unsupported track", async ()
   ).toBeInTheDocument();
 });
 
+test("displays the no-data message for a malformed track id without calling the backend", async () => {
+  render(<CompatibleCoursesScreen trackId="not-a-track-id" />);
+
+  expect(
+    await screen.findByText("No data is available for the entered secondary track."),
+  ).toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("displays the no-data message for an empty track id without calling the backend", async () => {
+  render(<CompatibleCoursesScreen trackId="" />);
+
+  expect(
+    await screen.findByText("No data is available for the entered secondary track."),
+  ).toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test("shows an error message when the request fails", async () => {
   fetchMock.mockRejectedValue(new Error("Network error"));
 
