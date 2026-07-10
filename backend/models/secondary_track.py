@@ -36,6 +36,10 @@ class SecondaryTrack(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    course_compatibilities: Mapped[list["HigherEdCourseCompatibility"]] = relationship(
+        back_populates="track",
+        cascade="all, delete-orphan",
+    )
 
 
 class SecondaryTrackDiscipline(Base):

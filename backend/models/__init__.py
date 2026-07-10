@@ -13,3 +13,5 @@ from .secondary_track import (
     SecondaryTrackExamRequirement,
     SecondaryTrackHigherEdImpact,
 )
+from .higher_ed_course import HigherEdCourse
+from .higher_ed_course_compatibility import HigherEdCourseCompatibility
