@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
 from backend.models.student_interest import StudentInterest
 from backend.models.student_session import StudentSession
 
@@ -75,3 +78,61 @@ async def record_student_interests(
         },
     )
     return saved_count
+
+
+async def update_secondary_track_memory(
+    db: AsyncSession, session_id: str, track_id: str
+) -> SessionSecondaryTrackMemory:
+    """Upsert the SessionSecondaryTrackMemory row for a session with the explored track."""
+    try:
+        parsed_session_id = UUID(session_id)
+        parsed_track_id = UUID(track_id)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="session_id and track_id must be valid UUIDs.",
+        ) from exc
+
+    result = await db.execute(
+        select(StudentSession).where(StudentSession.id == parsed_session_id)
+    )
+    student_session = result.scalar_one_or_none()
+    if student_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session is invalid or unauthorized.",
+        )
+
+    result = await db.execute(
+        select(SessionSecondaryTrackMemory).where(
+            SessionSecondaryTrackMemory.session_id == parsed_session_id
+        )
+    )
+    memory = result.scalars().one_or_none()
+
+    if memory is None:
+        memory = SessionSecondaryTrackMemory(
+            session_id=parsed_session_id, stored_track_id=parsed_track_id
+        )
+        db.add(memory)
+    else:
+        memory.stored_track_id = parsed_track_id
+
+    try:
+        await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception(
+            "Failed to persist secondary track memory.",
+            extra={"session_id": session_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the explored secondary track.",
+        ) from exc
+
+    logger.info(
+        "Updated secondary track memory.",
+        extra={"session_id": session_id, "stored_track_id": track_id},
+    )
+    return memory

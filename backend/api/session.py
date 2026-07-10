@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
 from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
-from backend.services.session_service import record_student_interests, validate_school_year
+from backend.services.session_service import (
+    record_student_interests,
+    update_secondary_track_memory,
+    validate_school_year,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -260,4 +264,33 @@ async def get_secondary_track_memory(
         track_explored=True,
         stored_track_id=str(memory.stored_track_id),
         message=TRACK_MEMORY_STORED_MESSAGE,
+    )
+
+
+class SecondaryTrackMemoryUpdateRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    track_id: str = Field(min_length=1)
+
+
+class SecondaryTrackMemoryUpdateResponse(BaseModel):
+    status: str
+    message: str
+
+
+@router.post("/secondary-track-memory", response_model=SecondaryTrackMemoryUpdateResponse)
+async def post_secondary_track_memory(
+    payload: SecondaryTrackMemoryUpdateRequest,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> SecondaryTrackMemoryUpdateResponse:
+    logger.info(
+        "Received secondary track exploration.",
+        extra={"session_id": payload.session_id, "track_id": payload.track_id},
+    )
+
+    await update_secondary_track_memory(db, payload.session_id, payload.track_id)
+
+    return SecondaryTrackMemoryUpdateResponse(
+        status="success",
+        message="The assistant will remember this track for follow-up questions.",
     )

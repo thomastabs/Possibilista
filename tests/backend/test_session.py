@@ -44,6 +44,9 @@ class DummyDB:
     def add_all(self, records):
         self.added.extend(records)
 
+    def add(self, record):
+        self.added.append(record)
+
     async def commit(self):
         if self.fail_commit:
             raise SQLAlchemyError("boom")
@@ -366,3 +369,111 @@ def test_secondary_track_memory_endpoint_returns_401_for_unknown_session():
     )
 
     assert response.status_code == 401
+
+
+def test_secondary_track_memory_update_endpoint_creates_memory_and_reflects_in_get():
+    from backend.services.session_service import update_secondary_track_memory
+
+    session_id = uuid4()
+    track_id = uuid4()
+    session = StudentSession(id=session_id)
+    db = DummyDB(session=session)
+
+    memory = asyncio.run(update_secondary_track_memory(db, str(session_id), str(track_id)))
+
+    assert memory.session_id == session_id
+    assert memory.stored_track_id == track_id
+    assert db.committed is True
+    assert len(db.added) == 1
+
+    # Reflect the created memory in a fresh DummyDB simulating the GET lookup.
+    get_db = DummyDB(session=session, track_memory=memory)
+    client = _make_test_client(get_db)
+    response = client.get(
+        "/api/v1/session/secondary-track-memory",
+        headers={"Authorization": "Bearer token"},
+        params={"session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["track_explored"] is True
+    assert payload["stored_track_id"] == str(track_id)
+
+
+def test_secondary_track_memory_update_endpoint_updates_existing_memory():
+    from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
+    from backend.services.session_service import update_secondary_track_memory
+
+    session_id = uuid4()
+    old_track_id = uuid4()
+    new_track_id = uuid4()
+    session = StudentSession(id=session_id)
+    existing_memory = SessionSecondaryTrackMemory(
+        id=uuid4(), session_id=session_id, stored_track_id=old_track_id
+    )
+    db = DummyDB(session=session, track_memory=existing_memory)
+
+    memory = asyncio.run(update_secondary_track_memory(db, str(session_id), str(new_track_id)))
+
+    assert memory is existing_memory
+    assert memory.stored_track_id == new_track_id
+    assert db.committed is True
+    assert db.added == []
+
+
+def test_secondary_track_memory_update_endpoint_returns_401_for_unknown_session():
+    from fastapi import HTTPException
+
+    from backend.services.session_service import update_secondary_track_memory
+
+    db = DummyDB(session=None)
+
+    try:
+        asyncio.run(update_secondary_track_memory(db, str(uuid4()), str(uuid4())))
+    except HTTPException as exc:
+        assert exc.status_code == 401
+    else:
+        raise AssertionError("Expected HTTPException for unknown session.")
+
+
+def test_secondary_track_memory_update_endpoint_rejects_malformed_ids():
+    from fastapi import HTTPException
+
+    from backend.services.session_service import update_secondary_track_memory
+
+    db = DummyDB()
+
+    try:
+        asyncio.run(update_secondary_track_memory(db, "not-a-uuid", "not-a-uuid"))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("Expected HTTPException for malformed ids.")
+
+
+def test_post_secondary_track_memory_endpoint_returns_success():
+    session_id = uuid4()
+    track_id = uuid4()
+    session = StudentSession(id=session_id)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/session/secondary-track-memory",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(session_id), "track_id": str(track_id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_post_secondary_track_memory_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/session/secondary-track-memory",
+        json={"session_id": str(uuid4()), "track_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)
