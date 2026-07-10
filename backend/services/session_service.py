@@ -6,13 +6,16 @@ import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.chat_message import ChatMessage
 from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
 from backend.models.student_interest import StudentInterest
+from backend.models.student_motivation import StudentMotivation
 from backend.models.student_session import StudentSession
+from backend.models.student_strength_weakness import StudentStrengthWeakness
 
 logger = logging.getLogger(__name__)
 
@@ -136,3 +139,65 @@ async def update_secondary_track_memory(
         extra={"session_id": session_id, "stored_track_id": track_id},
     )
     return memory
+
+
+async def clear_student_session_data(db: AsyncSession, session_id: str) -> StudentSession:
+    """Reset a StudentSession's fields and delete all data linked to it.
+
+    Clears student_name, age, and school_year, and deletes every StudentInterest,
+    StudentMotivation, StudentStrengthWeakness, ChatMessage, and
+    SessionSecondaryTrackMemory row for the session.
+    """
+    try:
+        parsed_session_id = UUID(session_id)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="session_id must be a valid UUID.",
+        ) from exc
+
+    result = await db.execute(
+        select(StudentSession).where(StudentSession.id == parsed_session_id)
+    )
+    student_session = result.scalar_one_or_none()
+    if student_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session is invalid or unauthorized.",
+        )
+
+    student_session.student_name = None
+    student_session.age = None
+    student_session.school_year = None
+
+    try:
+        await db.execute(
+            delete(StudentInterest).where(StudentInterest.session_id == parsed_session_id)
+        )
+        await db.execute(
+            delete(StudentMotivation).where(StudentMotivation.session_id == parsed_session_id)
+        )
+        await db.execute(
+            delete(StudentStrengthWeakness).where(
+                StudentStrengthWeakness.session_id == parsed_session_id
+            )
+        )
+        await db.execute(delete(ChatMessage).where(ChatMessage.session_id == parsed_session_id))
+        await db.execute(
+            delete(SessionSecondaryTrackMemory).where(
+                SessionSecondaryTrackMemory.session_id == parsed_session_id
+            )
+        )
+        await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception(
+            "Failed to clear student session data.", extra={"session_id": session_id}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to clear the student's session data.",
+        ) from exc
+
+    logger.info("Cleared student session data.", extra={"session_id": session_id})
+    return student_session

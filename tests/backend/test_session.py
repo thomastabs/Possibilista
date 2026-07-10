@@ -33,8 +33,14 @@ class DummyDB:
         self.rolled_back = False
         self.added = []
         self.track_memory = track_memory
+        self.deleted_tables = []
 
     async def execute(self, statement):
+        table = getattr(statement, "table", None)
+        if table is not None:
+            self.deleted_tables.append(table.name)
+            return DummyResult(None)
+
         entity = statement.column_descriptions[0]["entity"]
         entity_name = getattr(entity, "__name__", "")
         if entity_name == "SessionSecondaryTrackMemory":
@@ -477,3 +483,102 @@ def test_post_secondary_track_memory_endpoint_requires_bearer_authentication():
     )
 
     assert response.status_code in (401, 403)
+
+
+def test_clear_student_session_data_resets_fields_and_deletes_related_rows():
+    from backend.services.session_service import clear_student_session_data
+
+    session_id = uuid4()
+    session = StudentSession(
+        id=session_id, student_name="Maria", age=10, school_year=9
+    )
+    db = DummyDB(session=session)
+
+    result = asyncio.run(clear_student_session_data(db, str(session_id)))
+
+    assert result is session
+    assert session.student_name is None
+    assert session.age is None
+    assert session.school_year is None
+    assert db.committed is True
+    assert set(db.deleted_tables) == {
+        "student_interest",
+        "student_motivation",
+        "student_strength_weakness",
+        "chat_message",
+        "session_secondary_track_memory",
+    }
+
+
+def test_clear_student_session_data_returns_401_for_unknown_session():
+    from fastapi import HTTPException
+
+    from backend.services.session_service import clear_student_session_data
+
+    db = DummyDB(session=None)
+
+    try:
+        asyncio.run(clear_student_session_data(db, str(uuid4())))
+    except HTTPException as exc:
+        assert exc.status_code == 401
+    else:
+        raise AssertionError("Expected HTTPException for unknown session.")
+
+
+def test_clear_student_session_data_rejects_malformed_session_id():
+    from fastapi import HTTPException
+
+    from backend.services.session_service import clear_student_session_data
+
+    db = DummyDB()
+
+    try:
+        asyncio.run(clear_student_session_data(db, "not-a-uuid"))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("Expected HTTPException for malformed session id.")
+
+
+def test_session_end_clears_data_endpoint_returns_success():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, student_name="Maria", age=10, school_year=9)
+    db = DummyDB(session=session)
+    client = _make_test_client(db)
+
+    response = client.post(
+        "/api/v1/session/end",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert session.student_name is None
+    assert session.age is None
+    assert session.school_year is None
+    assert db.committed is True
+
+
+def test_session_end_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/session/end",
+        json={"session_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_session_end_endpoint_returns_401_for_unknown_session():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.post(
+        "/api/v1/session/end",
+        headers={"Authorization": "Bearer token"},
+        json={"session_id": str(uuid4())},
+    )
+
+    assert response.status_code == 401

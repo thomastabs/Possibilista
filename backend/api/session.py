@@ -15,6 +15,7 @@ from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
 from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
 from backend.services.session_service import (
+    clear_student_session_data,
     record_student_interests,
     update_secondary_track_memory,
     validate_school_year,
@@ -294,3 +295,25 @@ async def post_secondary_track_memory(
         status="success",
         message="The assistant will remember this track for follow-up questions.",
     )
+
+
+class SessionEndRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+
+
+class SessionEndResponse(BaseModel):
+    status: str
+    message: str
+
+
+@router.post("/end", response_model=SessionEndResponse)
+async def post_session_end(
+    payload: SessionEndRequest,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> SessionEndResponse:
+    logger.info("Received session end request.", extra={"session_id": payload.session_id})
+
+    await clear_student_session_data(db, payload.session_id)
+
+    return SessionEndResponse(status="success", message="Session data was cleared.")
