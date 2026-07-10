@@ -5,20 +5,23 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.api.profiling import get_db_session
 from backend.services.higher_ed_service import (
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
+    simulate_eligibility_for_secondary_track,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/higher-ed", tags=["higher-ed"])
+bearer_scheme = HTTPBearer(auto_error=True)
 
 
 class HigherEdCourseOut(BaseModel):
@@ -96,5 +99,50 @@ async def get_higher_ed_course_entrance_exams(
     return HigherEdCourseEntranceExamsResponse(
         available=result["available"],
         exams=[EntranceExamOut(**exam) for exam in result["exams"]],
+        message=result["message"],
+    )
+
+
+class EligibilitySimulationRequest(BaseModel):
+    secondary_track_id: str = Field(min_length=1)
+
+
+class EligibilitySimulationResponse(BaseModel):
+    eligible_courses: list[HigherEdCourseOut]
+    incomplete_data: bool
+    message: str
+
+
+@router.post("/eligibility-simulation", response_model=EligibilitySimulationResponse)
+async def post_eligibility_simulation(
+    payload: EligibilitySimulationRequest,
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> EligibilitySimulationResponse:
+    logger.info(
+        "Received eligibility simulation request.",
+        extra={"secondary_track_id": payload.secondary_track_id, "scheme": credentials.scheme},
+    )
+
+    try:
+        UUID(payload.secondary_track_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="secondary_track_id must be a valid UUID.",
+        ) from exc
+
+    try:
+        result = await simulate_eligibility_for_secondary_track(db, payload.secondary_track_id)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to simulate eligibility.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to simulate eligibility for the selected secondary track.",
+        ) from exc
+
+    return EligibilitySimulationResponse(
+        eligible_courses=[HigherEdCourseOut(**course) for course in result["eligible_courses"]],
+        incomplete_data=result["incomplete_data"],
         message=result["message"],
     )
