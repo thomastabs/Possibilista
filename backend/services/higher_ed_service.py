@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.higher_ed_course import HigherEdCourse
+from backend.models.higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
 from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
 from backend.models.secondary_track import SecondaryTrack
@@ -27,6 +28,10 @@ ELIGIBILITY_INCOMPLETE_DATA_MESSAGE = (
     "Eligibility cannot be fully assessed due to incomplete or missing secondary track data."
 )
 ELIGIBILITY_SUCCESS_MESSAGE = "Eligibility simulation completed successfully."
+
+ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE = (
+    "Admission criteria information is not available for the selected course."
+)
 
 
 async def get_compatible_higher_ed_courses(db: AsyncSession, secondary_track_id: str) -> dict[str, Any]:
@@ -229,4 +234,54 @@ async def simulate_eligibility_for_secondary_track(
         ],
         "incomplete_data": False,
         "message": ELIGIBILITY_SUCCESS_MESSAGE,
+    }
+
+
+async def get_admission_averages_for_course(db: AsyncSession, course_id: str) -> dict[str, Any]:
+    try:
+        parsed_course_id = UUID(course_id)
+    except (ValueError, AttributeError, TypeError):
+        logger.info("Rejected malformed course id.", extra={"course_id": course_id})
+        return {
+            "available": False,
+            "admission_average": None,
+            "exam_weights": [],
+            "message": ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE,
+        }
+
+    try:
+        result = await db.execute(
+            select(HigherEdCourseAdmissionAverage).where(
+                HigherEdCourseAdmissionAverage.course_id == parsed_course_id
+            )
+        )
+        admission_average = result.scalars().one_or_none()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load admission averages for course.", extra={"course_id": course_id}
+        )
+        raise
+
+    if (
+        admission_average is None
+        or admission_average.admission_average is None
+        or not admission_average.exam_weights
+    ):
+        logger.info(
+            "No complete admission average data found for course.",
+            extra={"course_id": course_id},
+        )
+        return {
+            "available": False,
+            "admission_average": None,
+            "exam_weights": [],
+            "message": ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE,
+        }
+
+    logger.info("Retrieved admission averages for course.", extra={"course_id": course_id})
+    return {
+        "available": True,
+        "admission_average": admission_average.admission_average,
+        "exam_weights": list(admission_average.exam_weights),
+        "message": "",
     }

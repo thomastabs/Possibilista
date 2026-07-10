@@ -7,21 +7,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from backend.api.profiling import get_db_session
-from backend.models.higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from backend.services.higher_ed_service import (
+    get_admission_averages_for_course,
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
     simulate_eligibility_for_secondary_track,
-)
-
-ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE = (
-    "Admission criteria information is not available for the selected course."
 )
 
 logger = logging.getLogger(__name__)
@@ -181,7 +176,7 @@ async def get_higher_ed_course_admission_averages(
     )
 
     try:
-        parsed_course_id = UUID(course_id)
+        UUID(course_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -189,12 +184,7 @@ async def get_higher_ed_course_admission_averages(
         ) from exc
 
     try:
-        result = await db.execute(
-            select(HigherEdCourseAdmissionAverage).where(
-                HigherEdCourseAdmissionAverage.course_id == parsed_course_id
-            )
-        )
-        admission_average = result.scalars().one_or_none()
+        result = await get_admission_averages_for_course(db, course_id)
     except SQLAlchemyError as exc:
         logger.exception("Failed to load admission averages.")
         raise HTTPException(
@@ -202,21 +192,9 @@ async def get_higher_ed_course_admission_averages(
             detail="Unable to load admission averages.",
         ) from exc
 
-    if (
-        admission_average is None
-        or admission_average.admission_average is None
-        or not admission_average.exam_weights
-    ):
-        return HigherEdCourseAdmissionAveragesResponse(
-            available=False,
-            admission_average=None,
-            exam_weights=[],
-            message=ADMISSION_AVERAGES_UNAVAILABLE_MESSAGE,
-        )
-
     return HigherEdCourseAdmissionAveragesResponse(
-        available=True,
-        admission_average=admission_average.admission_average,
-        exam_weights=[ExamWeightOut(**weight) for weight in admission_average.exam_weights],
-        message="",
+        available=result["available"],
+        admission_average=result["admission_average"],
+        exam_weights=[ExamWeightOut(**weight) for weight in result["exam_weights"]],
+        message=result["message"],
     )

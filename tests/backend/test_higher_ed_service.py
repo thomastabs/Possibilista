@@ -4,10 +4,12 @@ from uuid import uuid4
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.models.higher_ed_course import HigherEdCourse
+from backend.models.higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from backend.models.higher_ed_course_compatibility import HigherEdCourseCompatibility
 from backend.models.higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
 from backend.models.secondary_track import SecondaryTrack
 from backend.services.higher_ed_service import (
+    get_admission_averages_for_course,
     get_compatible_higher_ed_courses,
     get_entrance_exams_for_course,
     simulate_eligibility_for_secondary_track,
@@ -24,6 +26,9 @@ class DummyResult:
     def all(self):
         return self._records
 
+    def one_or_none(self):
+        return self._records[0] if self._records else None
+
 
 class DummyDB:
     def __init__(
@@ -33,6 +38,7 @@ class DummyDB:
         courses=None,
         exams=None,
         compatibilities=None,
+        admission_average=None,
         fail=False,
     ):
         self.track_by_id = track_by_id or {}
@@ -40,6 +46,7 @@ class DummyDB:
         self.courses = courses or []
         self.exams = exams or []
         self.compatibilities = compatibilities or []
+        self.admission_average = admission_average
         self.fail = fail
 
     async def get(self, model, record_id):
@@ -58,6 +65,9 @@ class DummyDB:
             return DummyResult(self.exams)
         if entity_name == "HigherEdCourseCompatibility":
             return DummyResult(self.compatibilities)
+        if entity_name == "HigherEdCourseAdmissionAverage":
+            records = [self.admission_average] if self.admission_average else []
+            return DummyResult(records)
         return DummyResult(self.courses)
 
 
@@ -222,3 +232,59 @@ def test_simulate_eligibility_returns_incomplete_data_for_malformed_id():
     assert result["eligible_courses"] == []
     assert result["incomplete_data"] is True
     assert "incomplete" in result["message"].lower()
+
+
+def test_get_admission_averages_for_course_returns_available_data_for_valid_course():
+    course_id = uuid4()
+    admission_average = HigherEdCourseAdmissionAverage(
+        id=uuid4(),
+        course_id=course_id,
+        admission_average=16.5,
+        exam_weights=[{"exam_name": "Mathematics A", "weight": 0.4}],
+        message="",
+    )
+    db = DummyDB(admission_average=admission_average)
+
+    result = asyncio.run(get_admission_averages_for_course(db, str(course_id)))
+
+    assert result == {
+        "available": True,
+        "admission_average": 16.5,
+        "exam_weights": [{"exam_name": "Mathematics A", "weight": 0.4}],
+        "message": "",
+    }
+
+
+def test_get_admission_averages_for_course_returns_unavailable_for_missing_record():
+    db = DummyDB()
+
+    result = asyncio.run(get_admission_averages_for_course(db, str(uuid4())))
+
+    assert result["available"] is False
+    assert result["admission_average"] is None
+    assert result["exam_weights"] == []
+    assert "not available" in result["message"].lower()
+
+
+def test_get_admission_averages_for_course_returns_unavailable_when_data_is_null():
+    course_id = uuid4()
+    admission_average = HigherEdCourseAdmissionAverage(
+        id=uuid4(), course_id=course_id, admission_average=None, exam_weights=None, message=""
+    )
+    db = DummyDB(admission_average=admission_average)
+
+    result = asyncio.run(get_admission_averages_for_course(db, str(course_id)))
+
+    assert result["available"] is False
+    assert "not available" in result["message"].lower()
+
+
+def test_get_admission_averages_for_course_returns_unavailable_for_malformed_id():
+    db = DummyDB()
+
+    result = asyncio.run(get_admission_averages_for_course(db, "not-a-uuid"))
+
+    assert result["available"] is False
+    assert result["admission_average"] is None
+    assert result["exam_weights"] == []
+    assert "not available" in result["message"].lower()
