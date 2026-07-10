@@ -16,4 +16,5 @@ from .secondary_track import (
 from .higher_ed_course import HigherEdCourse
 from .higher_ed_course_compatibility import HigherEdCourseCompatibility
 from .higher_ed_course_entrance_exam import HigherEdCourseEntranceExam
+from .higher_ed_course_admission_average import HigherEdCourseAdmissionAverage
 from .eligibility_simulation_result import EligibilitySimulationResult

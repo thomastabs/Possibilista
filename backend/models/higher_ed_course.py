@@ -25,3 +25,8 @@ class HigherEdCourse(Base):
         back_populates="course",
         cascade="all, delete-orphan",
     )
+    admission_average: Mapped["HigherEdCourseAdmissionAverage | None"] = relationship(
+        back_populates="course",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
