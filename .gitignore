@@ -2,3 +2,6 @@
 /Developer Packs
 node_modules/
 .vite/
+.venv/
+__pycache__/
+*.pyc
