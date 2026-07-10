@@ -7,11 +7,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
+from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
 from backend.services.session_service import record_student_interests, validate_school_year
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,16 @@ class SessionInterestsRequest(BaseModel):
 
 class SessionInterestsResponse(BaseModel):
     status: str
+    message: str
+
+
+TRACK_MEMORY_STORED_MESSAGE = "Continuing with the previously explored secondary track."
+TRACK_MEMORY_PROMPT_MESSAGE = "Please explore a secondary track first."
+
+
+class SecondaryTrackMemoryResponse(BaseModel):
+    track_explored: bool
+    stored_track_id: str | None
     message: str
 
 
@@ -208,3 +220,44 @@ async def post_session_interests(
     )
 
     return SessionInterestsResponse(status="success", message=message)
+
+
+@router.get("/secondary-track-memory", response_model=SecondaryTrackMemoryResponse)
+async def get_secondary_track_memory(
+    session_id: str,
+    _credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> SecondaryTrackMemoryResponse:
+    student_session = await resolve_student_session(db, session_id)
+
+    logger.info(
+        "Received secondary track memory request.",
+        extra={"session_id": str(student_session.id)},
+    )
+
+    try:
+        result = await db.execute(
+            select(SessionSecondaryTrackMemory).where(
+                SessionSecondaryTrackMemory.session_id == student_session.id
+            )
+        )
+        memory = result.scalars().one_or_none()
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to load secondary track memory.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to load secondary track memory.",
+        ) from exc
+
+    if memory is None:
+        return SecondaryTrackMemoryResponse(
+            track_explored=False,
+            stored_track_id=None,
+            message=TRACK_MEMORY_PROMPT_MESSAGE,
+        )
+
+    return SecondaryTrackMemoryResponse(
+        track_explored=True,
+        stored_track_id=str(memory.stored_track_id),
+        message=TRACK_MEMORY_STORED_MESSAGE,
+    )

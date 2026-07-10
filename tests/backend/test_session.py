@@ -18,16 +18,27 @@ class DummyResult:
     def scalar_one_or_none(self):
         return self._record
 
+    def scalars(self):
+        return self
+
+    def one_or_none(self):
+        return self._record
+
 
 class DummyDB:
-    def __init__(self, session=None, fail_commit=False):
+    def __init__(self, session=None, fail_commit=False, track_memory=None):
         self.session = session
         self.fail_commit = fail_commit
         self.committed = False
         self.rolled_back = False
         self.added = []
+        self.track_memory = track_memory
 
     async def execute(self, statement):
+        entity = statement.column_descriptions[0]["entity"]
+        entity_name = getattr(entity, "__name__", "")
+        if entity_name == "SessionSecondaryTrackMemory":
+            return DummyResult(self.track_memory)
         return DummyResult(self.session)
 
     def add_all(self, records):
@@ -293,3 +304,65 @@ def test_record_student_interests_raises_http_500_on_commit_failure():
         assert exc.status_code == 500
     else:
         raise AssertionError("Expected HTTPException on commit failure.")
+
+
+def test_secondary_track_memory_endpoint_returns_stored_track_when_explored():
+    from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
+
+    session_id = uuid4()
+    track_id = uuid4()
+    session = StudentSession(id=session_id)
+    memory = SessionSecondaryTrackMemory(id=uuid4(), session_id=session_id, stored_track_id=track_id)
+    client = _make_test_client(DummyDB(session=session, track_memory=memory))
+
+    response = client.get(
+        "/api/v1/session/secondary-track-memory",
+        headers={"Authorization": "Bearer token"},
+        params={"session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["track_explored"] is True
+    assert payload["stored_track_id"] == str(track_id)
+
+
+def test_secondary_track_memory_endpoint_prompts_exploration_when_none_stored():
+    session_id = uuid4()
+    session = StudentSession(id=session_id)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.get(
+        "/api/v1/session/secondary-track-memory",
+        headers={"Authorization": "Bearer token"},
+        params={"session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["track_explored"] is False
+    assert payload["stored_track_id"] is None
+    assert "explore" in payload["message"].lower()
+
+
+def test_secondary_track_memory_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/session/secondary-track-memory",
+        params={"session_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_secondary_track_memory_endpoint_returns_401_for_unknown_session():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.get(
+        "/api/v1/session/secondary-track-memory",
+        headers={"Authorization": "Bearer token"},
+        params={"session_id": str(uuid4())},
+    )
+
+    assert response.status_code == 401
