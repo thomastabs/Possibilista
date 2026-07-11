@@ -75,3 +75,56 @@ def test_confirmation_notification_returns_422_without_question_param():
     )
 
     assert response.status_code == 422
+
+
+def test_critical_decision_routing_returns_true_with_suggestion_for_critical_context():
+    client = _make_test_client()
+
+    response = client.get(
+        "/api/v1/escalation/critical-decision-routing",
+        headers={"Authorization": "Bearer token"},
+        params={"conversation_context": "I want to switch track next year."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["critical_decision_detected"] is True
+    assert payload["suggestion"]
+    assert "human" in payload["suggestion"].lower() or "institution" in payload["suggestion"].lower()
+
+
+def test_critical_decision_routing_returns_false_with_neutral_suggestion_for_normal_context():
+    client = _make_test_client()
+
+    response = client.get(
+        "/api/v1/escalation/critical-decision-routing",
+        headers={"Authorization": "Bearer token"},
+        params={"conversation_context": "What are the professional tracks?"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["critical_decision_detected"] is False
+    assert payload["suggestion"] == "No critical decision detected."
+
+
+def test_critical_decision_routing_requires_bearer_authentication():
+    client = _make_test_client()
+
+    response = client.get(
+        "/api/v1/escalation/critical-decision-routing",
+        params={"conversation_context": "What are the professional tracks?"},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_critical_decision_routing_returns_422_without_conversation_context_param():
+    client = _make_test_client()
+
+    response = client.get(
+        "/api/v1/escalation/critical-decision-routing",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 422
