@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -18,15 +19,16 @@ class DummyResult:
 
 
 class DummyDB:
-    def __init__(self, session=None):
+    def __init__(self, session=None, chat_message=None):
         self.session = session
+        self.chat_message = chat_message
         self.added = []
         self.committed = False
 
     async def execute(self, statement):
         entity = statement.column_descriptions[0]["entity"]
         if getattr(entity, "__name__", "") == "ChatMessage":
-            return DummyResult(None)
+            return DummyResult(self.chat_message)
         return DummyResult(self.session)
 
     def add(self, record):
@@ -123,3 +125,82 @@ def test_post_chat_message_endpoint_does_not_flag_confirmation_for_a_grounded_qu
     payload = response.json()
     assert payload["insufficient_info"] is False
     assert payload["requires_confirmation"] is False
+
+
+def test_fact_interpretation_endpoint_returns_facts_interpretations_and_no_basis():
+    answer_id = uuid4()
+    chat_message = SimpleNamespace(
+        id=answer_id,
+        facts=["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+        interpretations=[],
+        no_basis=False,
+    )
+    client = _make_test_client(DummyDB(chat_message=chat_message))
+
+    response = client.get(
+        "/api/v1/answers/fact-interpretation",
+        headers={"Authorization": "Bearer token"},
+        params={"answer_id": str(answer_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["facts"] == chat_message.facts
+    assert payload["interpretations"] == []
+    assert payload["no_basis"] is False
+
+
+def test_fact_interpretation_endpoint_returns_no_basis_true_when_flagged():
+    answer_id = uuid4()
+    chat_message = SimpleNamespace(
+        id=answer_id,
+        facts=[],
+        interpretations=[],
+        no_basis=True,
+    )
+    client = _make_test_client(DummyDB(chat_message=chat_message))
+
+    response = client.get(
+        "/api/v1/answers/fact-interpretation",
+        headers={"Authorization": "Bearer token"},
+        params={"answer_id": str(answer_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["no_basis"] is True
+
+
+def test_fact_interpretation_endpoint_returns_404_for_missing_answer_id():
+    client = _make_test_client(DummyDB(chat_message=None))
+
+    response = client.get(
+        "/api/v1/answers/fact-interpretation",
+        headers={"Authorization": "Bearer token"},
+        params={"answer_id": str(uuid4())},
+    )
+
+    assert response.status_code == 404
+
+
+def test_fact_interpretation_endpoint_returns_404_for_malformed_answer_id():
+    client = _make_test_client(DummyDB(chat_message=None))
+
+    response = client.get(
+        "/api/v1/answers/fact-interpretation",
+        headers={"Authorization": "Bearer token"},
+        params={"answer_id": "not-a-uuid"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_fact_interpretation_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB(chat_message=None))
+
+    response = client.get(
+        "/api/v1/answers/fact-interpretation",
+        params={"answer_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)

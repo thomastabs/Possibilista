@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -21,7 +21,10 @@ from backend.services.chat_service import build_chat_response_for_message, get_l
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+answers_router = APIRouter(prefix="/api/v1/answers", tags=["answers"])
 bearer_scheme = HTTPBearer(auto_error=True)
+
+ANSWER_NOT_FOUND_MESSAGE = "Answer not found."
 
 
 class ChatMessageRequest(BaseModel):
@@ -162,3 +165,58 @@ async def post_chat_message(
     )
 
     return ChatMessageResponse(**response)
+
+
+class FactInterpretationResponse(BaseModel):
+    facts: list[str]
+    interpretations: list[str]
+    no_basis: bool
+
+
+@answers_router.get("/fact-interpretation", response_model=FactInterpretationResponse)
+async def get_answer_fact_interpretation(
+    answer_id: str = Query(min_length=1),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> FactInterpretationResponse:
+    try:
+        answer_uuid = UUID(answer_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ANSWER_NOT_FOUND_MESSAGE,
+        ) from exc
+
+    logger.info(
+        "Received fact-interpretation retrieval request.",
+        extra={"answer_id": answer_id, "scheme": credentials.scheme},
+    )
+
+    result = await db.execute(select(ChatMessage).where(ChatMessage.id == answer_uuid))
+    chat_message = result.scalar_one_or_none()
+
+    if chat_message is None:
+        logger.info(
+            "No chat message found for answer_id.",
+            extra={"answer_id": answer_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ANSWER_NOT_FOUND_MESSAGE,
+        )
+
+    logger.info(
+        "Fact-interpretation retrieved.",
+        extra={
+            "answer_id": answer_id,
+            "facts_count": len(chat_message.facts),
+            "interpretations_count": len(chat_message.interpretations),
+            "no_basis": chat_message.no_basis,
+        },
+    )
+
+    return FactInterpretationResponse(
+        facts=list(chat_message.facts),
+        interpretations=list(chat_message.interpretations),
+        no_basis=chat_message.no_basis,
+    )
