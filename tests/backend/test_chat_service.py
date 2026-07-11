@@ -1,4 +1,22 @@
-from backend.services.chat_service import build_chat_response
+from backend.services.chat_service import build_chat_response, detect_critical_decision, suggest_escalation
+
+
+def test_detect_critical_decision_true_for_context_with_critical_terms():
+    assert detect_critical_decision("I want to switch track next year.") is True
+
+
+def test_detect_critical_decision_false_for_context_without_critical_terms():
+    assert detect_critical_decision("What are the professional tracks?") is False
+
+
+def test_detect_critical_decision_is_case_insensitive():
+    assert detect_critical_decision("I NEED TO DROP OUT this year.") is True
+
+
+def test_suggest_escalation_returns_a_human_confirmation_message():
+    suggestion = suggest_escalation("I want to switch track next year.")
+
+    assert "human" in suggestion.lower() or "institution" in suggestion.lower()
 
 
 def test_requires_confirmation_true_for_critical_decision_terms():

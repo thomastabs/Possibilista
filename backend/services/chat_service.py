@@ -46,6 +46,11 @@ _CRITICAL_DECISION_TERMS = {
     "contingent",
 }
 
+CRITICAL_DECISION_SUGGESTION_MESSAGE = (
+    "This involves a critical decision — please consult a human advisor or institution "
+    "for confirmation before proceeding."
+)
+
 
 def _normalize_message(message: str) -> str:
     cleaned = message.strip()
@@ -57,6 +62,18 @@ def _normalize_message(message: str) -> str:
 def _contains_any(text: str, terms: set[str]) -> bool:
     normalized = text.casefold()
     return any(term in normalized for term in terms)
+
+
+def detect_critical_decision(conversation_context: str) -> bool:
+    """Detect whether conversation context touches a critical decision point (Story 9389395)."""
+
+    return _contains_any(conversation_context, _CRITICAL_DECISION_TERMS)
+
+
+def suggest_escalation(conversation_context: str) -> str:
+    """Return the standard escalation suggestion for a detected critical decision."""
+
+    return CRITICAL_DECISION_SUGGESTION_MESSAGE
 
 
 def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
