@@ -71,3 +71,29 @@ def test_critical_decision_not_detected_for_a_plain_factual_question():
     response = build_chat_response("What are the professional tracks?", "session-critical-2")
 
     assert response["critical_decision_detected"] is False
+
+
+def test_no_basis_true_for_an_interpretative_question_with_no_document_match():
+    response = build_chat_response("What do you think I should do?", "session-no-basis-1")
+
+    assert response["no_basis"] is True
+    assert response["interpretations"] == []
+    assert response["is_interpretation"] is False
+    assert response["insufficient_info"] is True
+    assert response["requires_confirmation"] is True
+    assert "cannot provide an interpretation" in response["answer"].lower()
+
+
+def test_no_basis_false_for_an_interpretative_question_with_a_document_match():
+    response = build_chat_response(
+        "Which professional track would you recommend for me?", "session-no-basis-2"
+    )
+
+    assert response["no_basis"] is False
+    assert response["is_interpretation"] is True
+
+
+def test_no_basis_false_for_a_plain_factual_question():
+    response = build_chat_response("What are the professional tracks?", "session-no-basis-3")
+
+    assert response["no_basis"] is False

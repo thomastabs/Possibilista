@@ -47,6 +47,10 @@ class ChatMessageResponse(BaseModel):
     is_interpretation: bool = Field(
         description="True when the answer includes interpretative or uncertain content.",
     )
+    no_basis: bool = Field(
+        description="True when the question called for an interpretation but no official "
+        "document grounded it at all, so the system declined to provide one.",
+    )
     documents: list[dict] = Field(
         description="Official documents (title, content, source_url) grounding the facts in "
         "this answer, freshly retrieved per request. Empty when the answer is not grounded.",
@@ -95,6 +99,7 @@ async def persist_chat_message(
         requires_confirmation=response["requires_confirmation"],
         is_fact=response["is_fact"],
         is_interpretation=response["is_interpretation"],
+        no_basis=response["no_basis"],
         previous_message_id=UUID(previous_message_id) if previous_message_id else None,
         context_tokens=response.get("context_tokens"),
     )
@@ -150,6 +155,7 @@ async def post_chat_message(
             "requires_confirmation": response["requires_confirmation"],
             "is_fact": response["is_fact"],
             "is_interpretation": response["is_interpretation"],
+            "no_basis": response["no_basis"],
             "documents_count": len(response["documents"]),
             "confirmation_advice_given": response["confirmation_advice"] is not None,
         },

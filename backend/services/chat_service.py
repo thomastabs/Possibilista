@@ -51,6 +51,11 @@ CRITICAL_DECISION_SUGGESTION_MESSAGE = (
     "for confirmation before proceeding."
 )
 
+NO_BASIS_MESSAGE = (
+    "I cannot provide an interpretation for this because no official source information is "
+    "available. Please consult a human advisor or school guidance counselor."
+)
+
 
 def _normalize_message(message: str) -> str:
     cleaned = message.strip()
@@ -94,6 +99,13 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     documents = retrieve_official_documents(normalized_message)
     is_interpretative = _contains_any(normalized_message, _INTERPRETATION_TERMS)
     matches_critical_terms = detect_critical_decision(normalized_message)
+    no_basis = is_interpretative and not documents and not matches_critical_terms
+
+    if no_basis:
+        logger.info(
+            "Interpretative question has no document basis; declining to interpret.",
+            extra={"session_id": session_id},
+        )
 
     facts: list[str] = []
     interpretations: list[str] = []
@@ -104,7 +116,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
             for document in documents
         ]
 
-    if is_interpretative:
+    if is_interpretative and not no_basis:
         interpretations.append(
             "This is an interpretation based on general guidance, not a direct quote from "
             "official sources — confirm with a school counselor before deciding."
@@ -118,7 +130,9 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         facts = []
         interpretations = []
 
-    insufficient_info = matches_critical_terms or (not documents and not is_interpretative)
+    insufficient_info = (
+        matches_critical_terms or no_basis or (not documents and not is_interpretative)
+    )
     requires_confirmation = matches_critical_terms or insufficient_info or is_interpretative
 
     if requires_confirmation:
@@ -132,20 +146,21 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         )
 
     if insufficient_info:
-        logger.info(
-            "Insufficient information detected for chat message.",
-            extra={"session_id": session_id},
-        )
-        answer = (
-            "I cannot answer this question based on the current official sources available. "
-            "Please consult a human advisor or school guidance counselor."
-        )
+        if no_basis:
+            answer = NO_BASIS_MESSAGE
+        else:
+            logger.info(
+                "Insufficient information detected for chat message.",
+                extra={"session_id": session_id},
+            )
+            answer = (
+                "I cannot answer this question based on the current official sources available. "
+                "Please consult a human advisor or school guidance counselor."
+            )
     elif is_interpretative:
-        document_titles = (
-            ", ".join(f"'{document['title']}'" for document in documents)
-            if documents
-            else "the general secondary education guidance"
-        )
+        # Reaches here only when documents is non-empty — an interpretative question with no
+        # documents at all takes the no_basis branch above instead.
+        document_titles = ", ".join(f"'{document['title']}'" for document in documents)
         answer = (
             f"Based on {document_titles}, here is an interpretation: this is not a direct "
             "quote from official sources, so please confirm important decisions with a "
@@ -166,6 +181,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
             "interpretations_count": len(interpretations),
             "insufficient_info": insufficient_info,
             "requires_confirmation": requires_confirmation,
+            "no_basis": no_basis,
         },
     )
 
@@ -184,6 +200,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "requires_confirmation": requires_confirmation,
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
+        "no_basis": no_basis,
         "documents": [] if matches_critical_terms else [dict(document) for document in documents],
         "confirmation_advice": confirmation_advice,
         "session_id": session_id,
@@ -263,6 +280,7 @@ def build_chat_response_with_context(
     if (
         base_response["insufficient_info"]
         and not base_response["critical_decision_detected"]
+        and not base_response["no_basis"]
         and previous_message
         and previous_message.facts
     ):
@@ -358,6 +376,7 @@ def build_chat_response_for_message(
     critical_decision_detected = any(
         response["critical_decision_detected"] for response in segment_responses
     )
+    no_basis = any(response["no_basis"] for response in segment_responses)
     documents = [document for response in segment_responses for document in response["documents"]]
     topic_tokens = sorted({token for response in segment_responses for token in response["topic_tokens"]})
 
@@ -386,6 +405,7 @@ def build_chat_response_for_message(
         "requires_confirmation": requires_confirmation,
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
+        "no_basis": no_basis,
         "documents": documents,
         "confirmation_advice": confirmation_advice,
         "session_id": session_id,
