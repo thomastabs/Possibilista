@@ -51,6 +51,11 @@ class ChatMessageResponse(BaseModel):
         description="Official documents (title, content, source_url) grounding the facts in "
         "this answer, freshly retrieved per request. Empty when the answer is not grounded.",
     )
+    confirmation_advice: str | None = Field(
+        default=None,
+        description="Advisory message prompting the student to confirm with a human or "
+        "institution, present whenever requires_confirmation is true.",
+    )
     session_id: str
 
 
@@ -146,6 +151,7 @@ async def post_chat_message(
             "is_fact": response["is_fact"],
             "is_interpretation": response["is_interpretation"],
             "documents_count": len(response["documents"]),
+            "confirmation_advice_given": response["confirmation_advice"] is not None,
         },
     )
 

@@ -28,6 +28,11 @@ _INTERPRETATION_TERMS = {
     "suggest",
 }
 
+CONFIRMATION_ADVICE_MESSAGE = (
+    "This answer is interpretative or uncertain — please confirm with a human advisor or "
+    "school guidance counselor before making a decision."
+)
+
 _CRITICAL_DECISION_TERMS = {
     "change track",
     "switch track",
@@ -148,6 +153,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
         "documents": [dict(document) for document in documents],
+        "confirmation_advice": CONFIRMATION_ADVICE_MESSAGE if requires_confirmation else None,
         "session_id": session_id,
         "topic_tokens": _topic_tokens(documents),
     }
@@ -333,6 +339,7 @@ def build_chat_response_for_message(
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
         "documents": documents,
+        "confirmation_advice": CONFIRMATION_ADVICE_MESSAGE if requires_confirmation else None,
         "session_id": session_id,
         "topic_tokens": topic_tokens,
         "context_tokens": topic_tokens,

@@ -268,6 +268,7 @@ def test_post_chat_message_endpoint_returns_200_with_full_shape():
         "is_fact",
         "is_interpretation",
         "documents",
+        "confirmation_advice",
         "session_id",
     }
     assert payload["session_id"] == str(session_id)
@@ -388,6 +389,7 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
         "is_fact",
         "is_interpretation",
         "documents",
+        "confirmation_advice",
         "session_id",
     }
     assert isinstance(payload["answer"], str) and payload["answer"]
@@ -398,6 +400,7 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
     assert isinstance(payload["is_fact"], bool)
     assert isinstance(payload["is_interpretation"], bool)
     assert isinstance(payload["documents"], list)
+    assert payload["confirmation_advice"] is None or isinstance(payload["confirmation_advice"], str)
     assert payload["session_id"] == str(session_id)
 
 

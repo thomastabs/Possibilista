@@ -62,6 +62,8 @@ def test_chat_message_classification_separates_facts_and_interpretations():
     assert payload["interpretations"] == []
     assert payload["is_fact"] is True
     assert payload["is_interpretation"] is False
+    assert payload["requires_confirmation"] is False
+    assert payload["confirmation_advice"] is None
 
 
 def test_official_document_references_included_for_grounded_answers():
@@ -119,3 +121,5 @@ def test_chat_message_classification_flags_interpretative_answers_for_confirmati
     assert payload["interpretations"]
     assert payload["is_interpretation"] is True
     assert payload["requires_confirmation"] is True
+    assert payload["confirmation_advice"]
+    assert "confirm" in payload["confirmation_advice"].lower()
