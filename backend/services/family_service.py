@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.models.explanation import Explanation
+from backend.models.institutional_confirmation_alert import InstitutionalConfirmationAlert
 from backend.models.secondary_track import SecondaryTrack
 from backend.services.natural_language_question import retrieve_official_documents
 from backend.services.profile_summary import (
@@ -259,3 +260,47 @@ async def get_guidance_outcomes(db: AsyncSession, student_session_id: str) -> di
     )
 
     return {"recommendations": recommendations, "pending": False}
+
+
+async def get_institutional_confirmation_notification(
+    db: AsyncSession, student_session_id: str
+) -> dict[str, Any]:
+    """Fetch the institutional confirmation alert, if any, for a student session (Story 9389399).
+
+    Returns ``alert_present=False`` with no message when no ``InstitutionalConfirmationAlert``
+    record exists, or when the lookup fails — no alert is shown rather than surfacing a 500.
+    """
+
+    try:
+        result = await db.execute(
+            select(InstitutionalConfirmationAlert).where(
+                InstitutionalConfirmationAlert.session_id == student_session_id
+            )
+        )
+        alert = result.scalar_one_or_none()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load institutional confirmation alert.",
+            extra={"student_session_id": student_session_id},
+        )
+        return {"alert_present": False, "alert_message": ""}
+
+    if alert is None:
+        logger.info(
+            "No institutional confirmation alert found for student session.",
+            extra={"student_session_id": student_session_id},
+        )
+        return {"alert_present": False, "alert_message": ""}
+
+    logger.info(
+        "Retrieved institutional confirmation alert.",
+        extra={
+            "student_session_id": student_session_id,
+            "alert_present": alert.alert_present,
+        },
+    )
+
+    return {
+        "alert_present": alert.alert_present,
+        "alert_message": alert.alert_message or "",
+    }

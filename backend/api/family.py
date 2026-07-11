@@ -17,6 +17,7 @@ from backend.services.family_service import (
     get_exploration_path_explanation,
     get_fact_interpretation_distinction,
     get_guidance_outcomes,
+    get_institutional_confirmation_notification,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,11 @@ class GuidanceRecommendation(BaseModel):
 class GuidanceOutcomesResponse(BaseModel):
     recommendations: list[GuidanceRecommendation]
     pending: bool
+
+
+class InstitutionalConfirmationNotificationResponse(BaseModel):
+    alert_present: bool
+    alert_message: str
 
 
 async def _resolve_family_student_session(
@@ -152,3 +158,32 @@ async def get_guidance_outcomes_endpoint(
     )
 
     return GuidanceOutcomesResponse(**result)
+
+
+@router.get(
+    "/institutional-confirmation-notification",
+    response_model=InstitutionalConfirmationNotificationResponse,
+)
+async def get_institutional_confirmation_notification_endpoint(
+    student_session_id: str = Query(min_length=1),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> InstitutionalConfirmationNotificationResponse:
+    logger.info(
+        "Received institutional confirmation notification request.",
+        extra={"student_session_id": student_session_id, "scheme": credentials.scheme},
+    )
+
+    student_session = await _resolve_family_student_session(db, student_session_id)
+
+    result = await get_institutional_confirmation_notification(db, str(student_session.id))
+
+    logger.info(
+        "Institutional confirmation notification prepared.",
+        extra={
+            "student_session_id": str(student_session.id),
+            "alert_present": result["alert_present"],
+        },
+    )
+
+    return InstitutionalConfirmationNotificationResponse(**result)

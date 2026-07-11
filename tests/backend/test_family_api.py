@@ -28,13 +28,20 @@ class DummyResult:
 
 class DummyDB:
     def __init__(
-        self, session=None, interests=None, motivation=None, strengths=None, tracks=None
+        self,
+        session=None,
+        interests=None,
+        motivation=None,
+        strengths=None,
+        tracks=None,
+        confirmation_alert=None,
     ):
         self.session = session
         self.interests = interests or []
         self.motivation = motivation
         self.strengths = strengths
         self.tracks = tracks or []
+        self.confirmation_alert = confirmation_alert
 
     async def execute(self, statement):
         entity = statement.column_descriptions[0]["entity"]
@@ -49,6 +56,8 @@ class DummyDB:
             return DummyResult(self.strengths)
         if name == "SecondaryTrack":
             return DummyResult(self.tracks)
+        if name == "InstitutionalConfirmationAlert":
+            return DummyResult(self.confirmation_alert)
         return DummyResult([])
 
 
@@ -216,6 +225,69 @@ def test_guidance_outcomes_requires_bearer_authentication():
 
     response = client.get(
         "/api/v1/family/guidance-outcomes",
+        params={"student_session_id": str(uuid4())},
+    )
+
+    assert response.status_code in (401, 403)
+
+
+def test_institutional_confirmation_notification_returns_alert_when_present():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    alert = SimpleNamespace(
+        alert_present=True,
+        alert_message="Certain academic choices require confirmation from official institutions.",
+    )
+    db = DummyDB(session=session, confirmation_alert=alert)
+    client = _make_test_client(db)
+
+    response = client.get(
+        "/api/v1/family/institutional-confirmation-notification",
+        headers={"Authorization": "Bearer token"},
+        params={"student_session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["alert_present"] is True
+    assert payload["alert_message"] == alert.alert_message
+
+
+def test_institutional_confirmation_notification_returns_no_alert_when_absent():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    db = DummyDB(session=session, confirmation_alert=None)
+    client = _make_test_client(db)
+
+    response = client.get(
+        "/api/v1/family/institutional-confirmation-notification",
+        headers={"Authorization": "Bearer token"},
+        params={"student_session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["alert_present"] is False
+    assert payload["alert_message"] == ""
+
+
+def test_institutional_confirmation_notification_returns_404_for_unknown_student_session():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.get(
+        "/api/v1/family/institutional-confirmation-notification",
+        headers={"Authorization": "Bearer token"},
+        params={"student_session_id": str(uuid4())},
+    )
+
+    assert response.status_code == 404
+
+
+def test_institutional_confirmation_notification_requires_bearer_authentication():
+    client = _make_test_client(DummyDB(session=None))
+
+    response = client.get(
+        "/api/v1/family/institutional-confirmation-notification",
         params={"student_session_id": str(uuid4())},
     )
 
