@@ -1,10 +1,12 @@
-"""Legal framework document ingestion pipeline (Story 9389382).
+"""Document ingestion pipelines: legal framework (Story 9389382) and general exam guide
+(Story 9389384).
 
 Deterministic stub consistent with the rest of this repo's RAG surface (see
 ``natural_language_question.py`` and ``DETERMINISTIC_STUBS.md``) — no live embedding or LLM
-calls. Validates a batch of raw candidate documents, derives a deterministic fake embedding for
-each valid one, and persists them as ``Document`` rows. Corrupted documents are logged and
-excluded from indexing; the batch keeps processing rather than aborting on the first failure.
+calls; embeddings are generated via ``embedding_service.generate_embedding``. Legal framework
+documents are ingested as a batch (corrupted ones logged and excluded, the rest still
+processed); the exam guide is a single document (Story 9389384) — passing ``document=None``
+simulates it being missing, so the system detects the absence rather than indexing nothing.
 """
 
 from __future__ import annotations
@@ -17,16 +19,27 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.document import EMBEDDING_DIMENSIONS, Document
+from backend.models.document import Document
+from backend.services.embedding_service import generate_embedding
 
 logger = logging.getLogger(__name__)
 
 LEGAL_FRAMEWORK_DOCUMENT_TYPE = "legal_framework"
+EXAM_GUIDE_DOCUMENT_TYPE = "exam_guide"
+EXAM_GUIDE_MISSING_MESSAGE = "General Exam Guide document is missing."
 
 _REQUIRED_FIELDS = ("title", "content", "source_url", "version_label")
 
 
 class RawLegalFrameworkDocument(TypedDict, total=False):
+    id: str
+    title: str
+    content: str
+    source_url: str
+    version_label: str
+
+
+class RawExamGuideDocument(TypedDict, total=False):
     id: str
     title: str
     content: str
@@ -58,7 +71,7 @@ _LEGAL_FRAMEWORK_DOCUMENT_CATALOG: list[RawLegalFrameworkDocument] = [
 ]
 
 
-def _validate_legal_framework_document(document: RawLegalFrameworkDocument) -> list[str]:
+def _validate_document_fields(document: dict[str, Any]) -> list[str]:
     """Return validation error messages; an empty list means the document is well-formed."""
 
     errors: list[str] = []
@@ -68,26 +81,11 @@ def _validate_legal_framework_document(document: RawLegalFrameworkDocument) -> l
     return errors
 
 
-def _generate_embedding(content: str) -> list[float]:
-    """Deterministic stand-in for a real embedding call — see DETERMINISTIC_STUBS.md.
-
-    Derives a fixed-length numeric vector from the content's character codes so identical
-    content always yields the same vector, without depending on any external service.
-    """
-
-    vector = [0.0] * EMBEDDING_DIMENSIONS
-    if not content:
-        return vector
-
-    for index, char in enumerate(content):
-        vector[index % EMBEDDING_DIMENSIONS] += ord(char)
-
-    magnitude = max(vector) or 1.0
-    return [round(value / magnitude, 6) for value in vector]
-
-
 async def _upsert_document(
-    db: AsyncSession, candidate: RawLegalFrameworkDocument, embedding: list[float]
+    db: AsyncSession,
+    candidate: dict[str, Any],
+    document_type: str,
+    embedding: list[float],
 ) -> None:
     result = await db.execute(
         select(Document).where(Document.source_url == candidate["source_url"])
@@ -97,7 +95,7 @@ async def _upsert_document(
     if existing is not None:
         existing.title = candidate["title"]
         existing.content = candidate["content"]
-        existing.document_type = LEGAL_FRAMEWORK_DOCUMENT_TYPE
+        existing.document_type = document_type
         existing.version_label = candidate["version_label"]
         existing.indexed = True
         existing.indexing_errors = []
@@ -109,7 +107,7 @@ async def _upsert_document(
                 title=candidate["title"],
                 content=candidate["content"],
                 source_url=candidate["source_url"],
-                document_type=LEGAL_FRAMEWORK_DOCUMENT_TYPE,
+                document_type=document_type,
                 version_label=candidate["version_label"],
                 indexed=True,
                 indexing_errors=[],
@@ -141,7 +139,7 @@ async def ingest_legal_framework_documents(
 
     for candidate in candidate_documents:
         document_id = candidate.get("id", "<unknown>")
-        validation_errors = _validate_legal_framework_document(candidate)
+        validation_errors = _validate_document_fields(candidate)
 
         if validation_errors:
             error_summary = "; ".join(validation_errors)
@@ -152,10 +150,10 @@ async def ingest_legal_framework_documents(
             errors.append(f"{document_id}: {error_summary}")
             continue
 
-        embedding = _generate_embedding(candidate["content"])
+        embedding = generate_embedding(candidate["content"])
 
         try:
-            await _upsert_document(db, candidate, embedding)
+            await _upsert_document(db, candidate, LEGAL_FRAMEWORK_DOCUMENT_TYPE, embedding)
         except SQLAlchemyError:
             await db.rollback()
             logger.exception(
@@ -181,3 +179,67 @@ async def ingest_legal_framework_documents(
     )
 
     return {"indexed_count": indexed_count, "errors": errors}
+
+
+_EXAM_GUIDE_DOCUMENT: RawExamGuideDocument = {
+    "id": "general-exam-guide-2026",
+    "title": "General Exam Guide — Provas de Aferição e Exames Nacionais",
+    "content": (
+        "Describes the national exam calendar, subject-specific exam structure, grading "
+        "criteria, and special exam arrangements for secondary education students."
+    ),
+    "source_url": "https://www.dge.mec.pt/exames-nacionais",
+    "version_label": "2026-edition",
+}
+
+
+async def ingest_exam_guide_document(
+    db: AsyncSession,
+    document: RawExamGuideDocument | None = _EXAM_GUIDE_DOCUMENT,
+) -> dict[str, Any]:
+    """Ingest the General Exam Guide document: validate, embed, and persist it.
+
+    Unlike the legal framework batch, there is exactly one exam guide document
+    (Story 9389384) — pass ``document=None`` to simulate it being missing (Gherkin scenario
+    2): the system logs the absence for administrator notification and does not proceed
+    with embedding or persistence. The document being missing (or malformed) is surfaced to
+    administrators via ``indexing_status_service.get_indexing_status`` rather than a
+    separate alerting channel, since none exists in this repo slice.
+    """
+
+    if document is None:
+        logger.error(
+            "General Exam Guide document is missing; cannot index.",
+            extra={"document_type": EXAM_GUIDE_DOCUMENT_TYPE},
+        )
+        return {"indexed": False, "errors": [EXAM_GUIDE_MISSING_MESSAGE]}
+
+    document_id = document.get("id", "<unknown>")
+    validation_errors = _validate_document_fields(document)
+
+    if validation_errors:
+        error_summary = "; ".join(validation_errors)
+        logger.error(
+            "Corrupted General Exam Guide document detected; excluding from indexing.",
+            extra={"document_id": document_id, "errors": validation_errors},
+        )
+        return {"indexed": False, "errors": [f"{document_id}: {error_summary}"]}
+
+    embedding = generate_embedding(document["content"])
+
+    try:
+        await _upsert_document(db, document, EXAM_GUIDE_DOCUMENT_TYPE, embedding)
+    except SQLAlchemyError:
+        await db.rollback()
+        logger.exception(
+            "Failed to persist General Exam Guide document.",
+            extra={"document_id": document_id},
+        )
+        return {"indexed": False, "errors": [f"{document_id}: database persistence failed."]}
+
+    logger.info(
+        "Indexed General Exam Guide document.",
+        extra={"document_id": document_id, "source_url": document["source_url"]},
+    )
+
+    return {"indexed": True, "errors": []}

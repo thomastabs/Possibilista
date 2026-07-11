@@ -3,10 +3,21 @@ import logging
 
 from backend.models.document import EMBEDDING_DIMENSIONS
 from backend.services.document_ingestion_service import (
+    EXAM_GUIDE_DOCUMENT_TYPE,
+    EXAM_GUIDE_MISSING_MESSAGE,
     LEGAL_FRAMEWORK_DOCUMENT_TYPE,
-    _generate_embedding,
+    ingest_exam_guide_document,
     ingest_legal_framework_documents,
 )
+from backend.services.embedding_service import generate_embedding
+
+EXAM_GUIDE_DOCUMENT = {
+    "id": "general-exam-guide-2026",
+    "title": "General Exam Guide — Provas de Aferição e Exames Nacionais",
+    "content": "Describes the national exam calendar and grading criteria.",
+    "source_url": "https://www.dge.mec.pt/exames-nacionais",
+    "version_label": "2026-edition",
+}
 
 
 class DummyResult:
@@ -123,16 +134,16 @@ def test_legal_framework_ingestion_continues_processing_after_a_corrupted_docume
 def test_generate_embedding_is_deterministic_for_identical_content():
     content = "Establishes the legal framework for secondary education tracks."
 
-    first = _generate_embedding(content)
-    second = _generate_embedding(content)
+    first = generate_embedding(content)
+    second = generate_embedding(content)
 
     assert first == second
     assert len(first) == EMBEDDING_DIMENSIONS
 
 
 def test_generate_embedding_differs_for_different_content():
-    embedding_one = _generate_embedding("Establishes the legal framework for secondary tracks.")
-    embedding_two = _generate_embedding("Regulates professional courses within secondary education.")
+    embedding_one = generate_embedding("Establishes the legal framework for secondary tracks.")
+    embedding_two = generate_embedding("Regulates professional courses within secondary education.")
 
     assert embedding_one != embedding_two
 
@@ -230,3 +241,49 @@ def test_legal_framework_ingestion_never_commits_when_all_documents_are_corrupte
 
     assert db.added == []
     assert db.committed == 0
+
+
+def test_exam_guide_ingestion_indexes_the_document_when_available():
+    db = DummyDB()
+
+    result = asyncio.run(ingest_exam_guide_document(db, EXAM_GUIDE_DOCUMENT))
+
+    assert result["indexed"] is True
+    assert result["errors"] == []
+    assert len(db.added) == 1
+    indexed_document = db.added[0]
+    assert indexed_document.document_type == EXAM_GUIDE_DOCUMENT_TYPE
+    assert indexed_document.content == EXAM_GUIDE_DOCUMENT["content"]
+    assert indexed_document.indexed is True
+    assert indexed_document.embedding is not None
+
+
+def test_exam_guide_ingestion_detects_missing_document():
+    db = DummyDB()
+
+    result = asyncio.run(ingest_exam_guide_document(db, None))
+
+    assert result["indexed"] is False
+    assert result["errors"] == [EXAM_GUIDE_MISSING_MESSAGE]
+    assert db.added == []
+    assert db.committed == 0
+
+
+def test_exam_guide_ingestion_logs_error_when_document_is_missing(caplog):
+    db = DummyDB()
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(ingest_exam_guide_document(db, None))
+
+    assert any(
+        "General Exam Guide document is missing" in record.message for record in caplog.records
+    )
+
+
+def test_exam_guide_ingestion_uses_the_default_document_when_none_is_passed():
+    db = DummyDB()
+
+    result = asyncio.run(ingest_exam_guide_document(db))
+
+    assert result["indexed"] is True
+    assert len(db.added) == 1
