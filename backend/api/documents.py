@@ -1,4 +1,4 @@
-"""Document indexing endpoints (Stories 9389382, 9389384, 9389386).
+"""Document indexing endpoints (Stories 9389382, 9389384, 9389386, 9389388).
 
 ``auth: role:admin`` in the technical spec is not backed by a real role/permission system in
 this repo slice (none exists yet for any endpoint) — enforced here as plain bearer-token
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.profiling import get_db_session
 from backend.services.document_ingestion_service import (
+    ingest_higher_ed_requirements_documents,
     ingest_legal_framework_documents,
     ingest_secondary_track_definition_documents,
 )
@@ -42,6 +43,17 @@ SECONDARY_TRACK_DEFINITIONS_FAILURE_MESSAGE_TEMPLATE = (
 )
 SECONDARY_TRACK_DEFINITIONS_UNEXPECTED_FAILURE_MESSAGE = (
     "Unable to index secondary-track definition documents."
+)
+
+HIGHER_ED_REQUIREMENTS_SUCCESS_MESSAGE_TEMPLATE = (
+    "Indexed {count} higher-ed requirements document(s)."
+)
+HIGHER_ED_REQUIREMENTS_FAILURE_MESSAGE_TEMPLATE = (
+    "Indexed {indexed_count} higher-ed requirements document(s); {error_count} document(s) "
+    "were outdated or invalid and require updated versions before indexing: {errors}"
+)
+HIGHER_ED_REQUIREMENTS_UNEXPECTED_FAILURE_MESSAGE = (
+    "Unable to index higher-ed requirements documents."
 )
 
 
@@ -136,6 +148,50 @@ async def post_index_secondary_track_definitions(
 
     logger.info(
         "Secondary-track definitions indexing request completed.",
+        extra={
+            "status": status_value,
+            "indexed_count": indexed_count,
+            "errors_count": len(errors),
+        },
+    )
+
+    return DocumentIndexingResponse(status=status_value, message=message)
+
+
+@router.post("/index-higher-ed-requirements", response_model=DocumentIndexingResponse)
+async def post_index_higher_ed_requirements(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentIndexingResponse:
+    logger.info(
+        "Received higher-ed requirements indexing request.",
+        extra={"scheme": credentials.scheme},
+    )
+
+    try:
+        result = await ingest_higher_ed_requirements_documents(db)
+    except Exception:
+        logger.exception("Higher-ed requirements indexing failed unexpectedly.")
+        return DocumentIndexingResponse(
+            status="failed", message=HIGHER_ED_REQUIREMENTS_UNEXPECTED_FAILURE_MESSAGE
+        )
+
+    indexed_count = result["indexed_count"]
+    errors = result["errors"]
+
+    if errors:
+        status_value = "failed"
+        message = HIGHER_ED_REQUIREMENTS_FAILURE_MESSAGE_TEMPLATE.format(
+            indexed_count=indexed_count,
+            error_count=len(errors),
+            errors="; ".join(errors),
+        )
+    else:
+        status_value = "success"
+        message = HIGHER_ED_REQUIREMENTS_SUCCESS_MESSAGE_TEMPLATE.format(count=indexed_count)
+
+    logger.info(
+        "Higher-ed requirements indexing request completed.",
         extra={
             "status": status_value,
             "indexed_count": indexed_count,

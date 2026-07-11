@@ -243,3 +243,72 @@ def test_indexing_status_endpoint_requires_bearer_authentication():
     response = client.get("/api/v1/documents/indexing-status")
 
     assert response.status_code in (401, 403)
+
+
+def test_index_higher_ed_requirements_endpoint_returns_success_status():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-higher-ed-requirements",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert "Indexed" in payload["message"]
+
+
+def test_index_higher_ed_requirements_endpoint_returns_failure_for_outdated_documents(
+    monkeypatch,
+):
+    async def fake_ingest(db):
+        return {
+            "indexed_count": 0,
+            "errors": [
+                "outdated-doc: Outdated version '2019-edition'; requires a version from "
+                "2026 or later."
+            ],
+        }
+
+    monkeypatch.setattr(documents_module, "ingest_higher_ed_requirements_documents", fake_ingest)
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-higher-ed-requirements",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert "outdated-doc" in payload["message"]
+    assert "updated versions" in payload["message"]
+
+
+def test_index_higher_ed_requirements_endpoint_reports_failure_on_unexpected_exception(
+    monkeypatch,
+):
+    async def failing_ingest(db):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        documents_module, "ingest_higher_ed_requirements_documents", failing_ingest
+    )
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-higher-ed-requirements",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+
+
+def test_index_higher_ed_requirements_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post("/api/v1/documents/index-higher-ed-requirements")
+
+    assert response.status_code in (401, 403)
