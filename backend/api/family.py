@@ -16,6 +16,7 @@ from backend.models.student_session import StudentSession
 from backend.services.family_service import (
     get_exploration_path_explanation,
     get_fact_interpretation_distinction,
+    get_guidance_outcomes,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,16 @@ class FactInterpretationDistinctionResponse(BaseModel):
     facts: list[str]
     interpretations: list[str]
     unavailable_info: bool
+
+
+class GuidanceRecommendation(BaseModel):
+    text: str
+    source: str
+
+
+class GuidanceOutcomesResponse(BaseModel):
+    recommendations: list[GuidanceRecommendation]
+    pending: bool
 
 
 async def _resolve_family_student_session(
@@ -114,3 +125,30 @@ async def get_fact_interpretation_distinction_endpoint(
     )
 
     return FactInterpretationDistinctionResponse(**result)
+
+
+@router.get("/guidance-outcomes", response_model=GuidanceOutcomesResponse)
+async def get_guidance_outcomes_endpoint(
+    student_session_id: str = Query(min_length=1),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> GuidanceOutcomesResponse:
+    logger.info(
+        "Received guidance outcomes request.",
+        extra={"student_session_id": student_session_id, "scheme": credentials.scheme},
+    )
+
+    student_session = await _resolve_family_student_session(db, student_session_id)
+
+    result = await get_guidance_outcomes(db, str(student_session.id))
+
+    logger.info(
+        "Guidance outcomes prepared.",
+        extra={
+            "student_session_id": str(student_session.id),
+            "recommendations_count": len(result["recommendations"]),
+            "pending": result["pending"],
+        },
+    )
+
+    return GuidanceOutcomesResponse(**result)

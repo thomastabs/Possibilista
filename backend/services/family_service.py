@@ -8,8 +8,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.models.explanation import Explanation
+from backend.models.secondary_track import SecondaryTrack
+from backend.services.natural_language_question import retrieve_official_documents
 from backend.services.profile_summary import (
     fetch_student_interests,
     fetch_student_motivation,
@@ -24,6 +27,7 @@ NO_ACADEMIC_AREAS_MESSAGE = (
     "No academic strengths or weaknesses have been recorded for this student yet."
 )
 NO_DATA_MESSAGE = "This student has not started exploring yet."
+GENERIC_TRACK_SOURCE_URL = "https://www.dge.mec.pt/ensino-secundario"
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -159,3 +163,99 @@ async def get_fact_interpretation_distinction(db: AsyncSession, explanation_id: 
         "interpretations": list(explanation.interpretations),
         "unavailable_info": explanation.unavailable_info,
     }
+
+
+def _score_secondary_track(
+    track: SecondaryTrack, strengths: set[str], weaknesses: set[str]
+) -> int:
+    track_terms = {track.name.casefold()}
+    if track.description:
+        track_terms.update(track.description.casefold().split())
+    discipline_terms = {discipline.discipline_name.casefold() for discipline in track.disciplines}
+    all_terms = track_terms | discipline_terms
+
+    strength_matches = sum(1 for value in strengths if value in all_terms)
+    weakness_matches = sum(1 for value in weaknesses if value in all_terms)
+    return (strength_matches * 3) - (weakness_matches * 2)
+
+
+def _guidance_source_for_track(track: SecondaryTrack) -> str:
+    documents = retrieve_official_documents(track.name)
+    if documents:
+        return documents[0]["source_url"]
+    return GENERIC_TRACK_SOURCE_URL
+
+
+async def get_guidance_outcomes(db: AsyncSession, student_session_id: str) -> dict[str, Any]:
+    """Build source-grounded guidance recommendations for a student's academic planning (Story 9389397).
+
+    Scores ``SecondaryTrack`` candidates against the student's recorded strengths/weaknesses —
+    the same technique ``recommend_compatible_secondary_tracks`` in ``profiling.py`` uses — then
+    pairs each recommended track with an official document reference. Returns
+    ``pending=True`` with no recommendations when strengths/weaknesses haven't been recorded yet,
+    no track scores above zero, or the lookup fails, mirroring ``profile_summary.py``'s
+    "log and degrade gracefully" convention rather than raising.
+    """
+
+    strengths_record = await fetch_student_strengths_weaknesses(db, student_session_id)
+
+    if strengths_record is None or not (strengths_record.strengths or strengths_record.weaknesses):
+        logger.info(
+            "No academic strengths/weaknesses recorded; guidance outcomes pending.",
+            extra={"student_session_id": student_session_id},
+        )
+        return {"recommendations": [], "pending": True}
+
+    normalized_strengths = {item.casefold() for item in strengths_record.strengths if item}
+    normalized_weaknesses = {item.casefold() for item in strengths_record.weaknesses if item}
+
+    try:
+        result = await db.execute(
+            select(SecondaryTrack).options(selectinload(SecondaryTrack.disciplines))
+        )
+        tracks = result.scalars().unique().all()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load secondary tracks for guidance outcomes.",
+            extra={"student_session_id": student_session_id},
+        )
+        return {"recommendations": [], "pending": True}
+
+    scored_tracks = sorted(
+        (
+            (score, track)
+            for track in tracks
+            if (score := _score_secondary_track(track, normalized_strengths, normalized_weaknesses))
+            > 0
+        ),
+        key=lambda item: (-item[0], item[1].name.lower()),
+    )
+
+    if not scored_tracks:
+        logger.info(
+            "No secondary track scored highly enough for guidance outcomes.",
+            extra={"student_session_id": student_session_id},
+        )
+        return {"recommendations": [], "pending": True}
+
+    recommendations = [
+        {
+            "text": (
+                f"The {track.name} track is a strong match based on the student's recorded "
+                "academic strengths and weaknesses."
+                + (f" {track.description}" if track.description else "")
+            ),
+            "source": _guidance_source_for_track(track),
+        }
+        for _, track in scored_tracks[:3]
+    ]
+
+    logger.info(
+        "Built guidance outcomes recommendations.",
+        extra={
+            "student_session_id": student_session_id,
+            "recommendations_count": len(recommendations),
+        },
+    )
+
+    return {"recommendations": recommendations, "pending": False}
