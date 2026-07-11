@@ -292,6 +292,46 @@ test("shows the confirmation advisory alongside facts and interpretations withou
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
 
+test("withholds a definitive answer and shows escalation advice for a critical decision", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer:
+        "I cannot answer this question based on the current official sources available. " +
+        "Please consult a human advisor or school guidance counselor.",
+      facts: [],
+      interpretations: [],
+      insufficient_info: true,
+      requires_confirmation: true,
+      documents: [],
+      confirmation_advice:
+        "This involves a critical decision — please consult a human advisor or institution " +
+        "for confirmation before proceeding.",
+      session_id: "session-critical",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-critical" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: { value: "I want to enroll in the professional track." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(
+    screen.getByText(
+      "This involves a critical decision — please consult a human advisor or institution " +
+        "for confirmation before proceeding.",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "The system cannot answer this question based on the current official sources.",
+  );
+  expect(screen.queryByText("Facts")).not.toBeInTheDocument();
+  expect(screen.queryByText("Interpretation")).not.toBeInTheDocument();
+});
+
 test("appends multiple turns to the chat history and clears the input", async () => {
   fetchMock
     .mockResolvedValueOnce({
