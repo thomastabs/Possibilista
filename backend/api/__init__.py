@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from backend.api.chat import router as chat_router
 from backend.api.escalation import router as escalation_router
+from backend.api.family import router as family_router
 from backend.api.higher_ed import router as higher_ed_router
 from backend.api.natural_language_question import router as natural_language_question_router
 from backend.api.profiling import router as profiling_router
@@ -18,3 +19,4 @@ router.include_router(secondary_tracks_router)
 router.include_router(higher_ed_router)
 router.include_router(session_router)
 router.include_router(escalation_router)
+router.include_router(family_router)
