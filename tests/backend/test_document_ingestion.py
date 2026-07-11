@@ -184,3 +184,49 @@ class _ExistingDocument:
 
 def _as_existing(candidate, embedding):
     return _ExistingDocument(candidate["source_url"], candidate["content"], embedding)
+
+
+def test_legal_framework_ingestion_reports_which_field_is_missing_for_each_cause():
+    db = DummyDB()
+    missing_title = {**VALID_DOCUMENT, "id": "missing-title", "title": ""}
+    missing_content = {**VALID_DOCUMENT, "id": "missing-content", "content": ""}
+    missing_source_url = {**VALID_DOCUMENT, "id": "missing-source-url", "source_url": ""}
+    missing_version_label = {**VALID_DOCUMENT, "id": "missing-version-label", "version_label": ""}
+
+    result = asyncio.run(
+        ingest_legal_framework_documents(
+            db,
+            [missing_title, missing_content, missing_source_url, missing_version_label],
+        )
+    )
+
+    assert result["indexed_count"] == 0
+    assert len(result["errors"]) == 4
+    assert any("title" in error for error in result["errors"])
+    assert any("content" in error for error in result["errors"])
+    assert any("source_url" in error for error in result["errors"])
+    assert any("version_label" in error for error in result["errors"])
+
+
+def test_legal_framework_ingestion_logs_one_error_per_corrupted_document(caplog):
+    db = DummyDB()
+    second_corrupted = {**CORRUPTED_DOCUMENT, "id": "second-corrupted-doc"}
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(ingest_legal_framework_documents(db, [CORRUPTED_DOCUMENT, second_corrupted]))
+
+    error_records = [
+        record
+        for record in caplog.records
+        if "Corrupted legal framework document detected" in record.message
+    ]
+    assert len(error_records) == 2
+
+
+def test_legal_framework_ingestion_never_commits_when_all_documents_are_corrupted():
+    db = DummyDB()
+
+    asyncio.run(ingest_legal_framework_documents(db, [CORRUPTED_DOCUMENT]))
+
+    assert db.added == []
+    assert db.committed == 0
