@@ -1,5 +1,11 @@
 import React, { useState } from "react";
 
+type DocumentReference = {
+  title: string;
+  content: string;
+  source_url: string;
+};
+
 type ChatTurn = {
   id: string;
   question: string;
@@ -8,6 +14,8 @@ type ChatTurn = {
   interpretations: string[];
   insufficient_info: boolean;
   requires_confirmation: boolean;
+  documents: DocumentReference[];
+  confirmationAdvice: string | null;
 };
 
 type ChatMessageResponse = {
@@ -16,6 +24,8 @@ type ChatMessageResponse = {
   interpretations?: string[];
   insufficient_info?: boolean;
   requires_confirmation?: boolean;
+  documents?: DocumentReference[];
+  confirmation_advice?: string | null;
   session_id?: string;
 };
 
@@ -113,6 +123,8 @@ export function ConversationalChatScreen({
           interpretations: data.interpretations || [],
           insufficient_info: Boolean(data.insufficient_info),
           requires_confirmation: Boolean(data.requires_confirmation),
+          documents: data.documents || [],
+          confirmationAdvice: data.confirmation_advice ?? null,
         },
       ]);
       setPendingMessage(null);
@@ -170,7 +182,8 @@ export function ConversationalChatScreen({
 
               {turn.requires_confirmation ? (
                 <p role="alert" className="chat-screen__confirmation-alert">
-                  Human or institutional confirmation is recommended for this answer.
+                  {turn.confirmationAdvice ||
+                    "Human or institutional confirmation is recommended for this answer."}
                 </p>
               ) : null}
 
@@ -183,17 +196,40 @@ export function ConversationalChatScreen({
               {turn.facts.length > 0 ? (
                 <article className="chat-screen__facts">
                   <h2>Facts</h2>
+                  <p className="chat-screen__facts-label">Documented facts from official sources.</p>
                   <ul>
                     {turn.facts.map((fact) => (
                       <li key={fact}>{fact}</li>
                     ))}
                   </ul>
+
+                  <section
+                    className="chat-screen__sources"
+                    aria-label="Official document sources for this answer"
+                  >
+                    <h3>Sources</h3>
+                    {turn.documents.length > 0 ? (
+                      <ul>
+                        {turn.documents.map((document) => (
+                          <li key={document.source_url}>
+                            <strong>{document.title}</strong> — {document.content} (
+                            <a href={document.source_url}>{document.source_url}</a>)
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No sources available.</p>
+                    )}
+                  </section>
                 </article>
               ) : null}
 
               {turn.interpretations.length > 0 ? (
                 <article className="chat-screen__interpretations">
                   <h2>Interpretation</h2>
+                  <p className="chat-screen__interpretations-label">
+                    Interpretative content — not a direct quote from official sources.
+                  </p>
                   <ul>
                     {turn.interpretations.map((interpretation) => (
                       <li key={interpretation}>{interpretation}</li>

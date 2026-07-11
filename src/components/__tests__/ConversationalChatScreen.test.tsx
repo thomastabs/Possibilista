@@ -37,6 +37,99 @@ test("sends a question and displays facts separated from interpretations", async
   expect(screen.queryByText("Interpretation")).not.toBeInTheDocument();
 });
 
+test("shows official document sources supporting a grounded answer", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer: "According to the official documents 'Professional Courses Guidance', ...",
+      facts: ["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+      interpretations: [],
+      insufficient_info: false,
+      requires_confirmation: false,
+      documents: [
+        {
+          title: "Professional Courses Guidance",
+          content: "Professional tracks combine general and technical training.",
+          source_url: "https://www.dge.mec.pt/cursos-profissionais",
+        },
+      ],
+      confirmation_advice: null,
+      session_id: "session-9",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-9" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: { value: "What are the professional tracks?" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(screen.getByText("Sources")).toBeInTheDocument();
+  expect(screen.getByText("Professional Courses Guidance")).toBeInTheDocument();
+  expect(
+    screen.getByText("Professional tracks combine general and technical training.", { exact: false }),
+  ).toBeInTheDocument();
+});
+
+test("shows a no-sources message when a grounded answer has no document references", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer: "Continuing from the previous topic: ...",
+      facts: ["Professional Courses Guidance (https://www.dge.mec.pt/cursos-profissionais): ..."],
+      interpretations: [],
+      insufficient_info: false,
+      requires_confirmation: false,
+      documents: [],
+      confirmation_advice: null,
+      session_id: "session-10",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-10" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: { value: "What subjects does it include?" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(screen.getByText("No sources available.")).toBeInTheDocument();
+});
+
+test("shows the backend's confirmation advice message when provided", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      answer: "This is an interpretation...",
+      facts: [],
+      interpretations: ["This is an interpretation based on general guidance..."],
+      insufficient_info: false,
+      requires_confirmation: true,
+      documents: [],
+      confirmation_advice:
+        "This answer is interpretative or uncertain — please confirm with a human advisor or school guidance counselor before making a decision.",
+      session_id: "session-11",
+    }),
+  });
+
+  render(<ConversationalChatScreen bearerToken="token" sessionId="session-11" />);
+
+  fireEvent.change(screen.getByLabelText("Your message"), {
+    target: { value: "Which professional track would you recommend for me?" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(
+    screen.getByText(
+      "This answer is interpretative or uncertain — please confirm with a human advisor or school guidance counselor before making a decision.",
+    ),
+  ).toBeInTheDocument();
+});
+
 test("renders a compound question's answer as separate, clearly addressed parts", async () => {
   fetchMock.mockResolvedValue({
     ok: true,
