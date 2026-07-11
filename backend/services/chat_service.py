@@ -89,7 +89,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         )
 
     insufficient_info = not documents and not is_interpretative
-    requires_confirmation = matches_critical_terms or insufficient_info
+    requires_confirmation = matches_critical_terms or insufficient_info or is_interpretative
 
     if requires_confirmation:
         logger.info(
