@@ -8,7 +8,9 @@ the prior turn in the same session, and ``context_tokens`` records the
 topic identity (matched official-document titles) of this turn so the next
 turn can decide whether to retain or reset context. ``is_fact`` and
 ``is_interpretation`` mark, at the whole-message level, whether the answer
-carries any documented facts and/or interpretative content (Story 9389394).
+carries any documented facts and/or interpretative content (Story 9389394). ``no_basis``
+marks a message where the question called for an interpretation but no official document
+grounded it at all, so the system declined to fabricate one (Story 9389390).
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ class ChatMessage(Base):
     requires_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_interpretation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    no_basis: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     previous_message_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("chat_message.id", ondelete="SET NULL"),

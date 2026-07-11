@@ -26,6 +26,7 @@ def test_chat_message_table_shape():
         "requires_confirmation",
         "is_fact",
         "is_interpretation",
+        "no_basis",
         "previous_message_id",
         "context_tokens",
         "timestamp",
@@ -84,6 +85,7 @@ def test_chat_message_defaults_are_empty_and_false():
     assert message.requires_confirmation in (None, False)
     assert message.is_fact in (None, False)
     assert message.is_interpretation in (None, False)
+    assert message.no_basis in (None, False)
 
 
 def test_chat_message_persists_fact_and_interpretation_flags():
@@ -96,6 +98,20 @@ def test_chat_message_persists_fact_and_interpretation_flags():
     )
 
     assert message.is_fact is True
+    assert message.is_interpretation is False
+
+
+def test_chat_message_persists_no_basis_flag():
+    message = ChatMessage(
+        session_id=uuid4(),
+        message="What do you think I should do?",
+        answer="I cannot provide an interpretation for this because no source information is available.",
+        is_fact=False,
+        is_interpretation=False,
+        no_basis=True,
+    )
+
+    assert message.no_basis is True
     assert message.is_interpretation is False
 
 
