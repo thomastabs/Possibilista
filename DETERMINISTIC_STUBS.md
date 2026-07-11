@@ -51,32 +51,37 @@ below), so there was no real orchestration code to migrate.
   `Document.embedding` (already a real `pgvector.sqlalchemy.Vector` column — only the value
   generation is stubbed).
 
-## backend/services/document_ingestion_service.py (added US#9389382, extended US#9389384/9389386, 2026-07-11)
+## backend/services/document_ingestion_service.py (added US#9389382, extended US#9389384/9389386/9389388, 2026-07-11)
 
 - **Stubbed**: `_LEGAL_FRAMEWORK_DOCUMENT_CATALOG` is a small hardcoded list of two valid raw
-  candidate documents; `_EXAM_GUIDE_DOCUMENT` is a single hardcoded raw document;
-  `_SECONDARY_TRACK_DEFINITIONS_CATALOG` is a single hardcoded raw document — all three stand in
-  for a real document source (file upload, admin-provided corpus, or external legal/exam-database
-  fetch). "Corrupted"/"missing"/"incomplete" scenarios are exercised via explicit test
-  fixtures/parameters (`document=None` for the exam guide; a hand-written incomplete document for
-  secondary-track definitions) rather than baked into the defaults, since the defaults are what
-  the indexing endpoints actually index.
+  candidate documents; `_EXAM_GUIDE_DOCUMENT`, `_SECONDARY_TRACK_DEFINITIONS_CATALOG` (one item),
+  and `_HIGHER_ED_REQUIREMENTS_CATALOG` (one item) are each a single hardcoded raw document — all
+  four stand in for a real document source (file upload, admin-provided corpus, or external
+  legal/exam/admissions-database fetch). "Corrupted"/"missing"/"incomplete"/"outdated" scenarios
+  are exercised via explicit test fixtures/parameters (`document=None` for the exam guide;
+  hand-written incomplete/outdated documents for the other two) rather than baked into the
+  defaults, since the defaults are what the indexing endpoints actually index. Freshness for
+  higher-ed requirements is a single hardcoded `HIGHER_ED_REQUIREMENTS_LATEST_VERSION_YEAR = 2026`
+  compared against the leading 4-digit year parsed out of `version_label` — not a real "latest
+  known version" registry.
 - **Real implementation would need**: a real document source (upload endpoint, filesystem watch,
-  or external fetch) instead of the static catalog/document, and real file-format/content
-  validation (e.g. PDF/DOCX parsing with a library like `unstructured` or `pypdf`, and genuine
-  structural analysis of parsed sections) instead of the "required fields present" +
-  "content mentions these keywords" checks used to detect "corruption"/"missing"/"incomplete"
-  here.
-- **Also note**: `POST /api/v1/documents/index-legal-framework` (US#9389382) and
-  `POST /api/v1/documents/index-secondary-track-definitions` (US#9389386) were not in the locked
-  `Apex Spec Context/technical-spec.md` — that spec maps both stories only to
+  or external fetch) instead of the static catalog/document, real file-format/content validation
+  (e.g. PDF/DOCX parsing with a library like `unstructured` or `pypdf`, and genuine structural
+  analysis of parsed sections) instead of the "required fields present" + "content mentions these
+  keywords" checks used to detect "corruption"/"missing"/"incomplete" here, and a real version
+  registry (e.g. tracking the actual latest published edition per document type) instead of one
+  hardcoded expected year.
+- **Also note**: `POST /api/v1/documents/index-legal-framework` (US#9389382),
+  `POST /api/v1/documents/index-secondary-track-definitions` (US#9389386), and
+  `POST /api/v1/documents/index-higher-ed-requirements` (US#9389388) were none of them in the
+  locked `Apex Spec Context/technical-spec.md` — that spec maps all three stories only to
   `GET /api/v1/documents/indexing-status`. User chose (2026-07-11, for 9382, applied consistently
-  to 9386) to amend the spec and add each new endpoint rather than build toward the existing
-  `indexing-status` contract instead. Note the inconsistency this leaves: US#9389384's exam guide
-  got no dedicated trigger endpoint at all (no pack asked for one) — only legal_framework and
-  secondary_track_definitions have their own `POST /index-*` endpoint; the generic
+  to 9386 and 9388) to amend the spec and add each new endpoint rather than build toward the
+  existing `indexing-status` contract instead. Note the inconsistency this leaves: US#9389384's
+  exam guide got no dedicated trigger endpoint at all (no pack asked for one) — the other three
+  document types each have their own `POST /index-*` endpoint; the generic
   `POST /api/v1/documents/index-update` (Story 9389391, not yet built) is presumably meant to be
-  the single trigger eventually, and these per-type endpoints may end up redundant with it.
+  the single trigger eventually, and these four per-type endpoints may end up redundant with it.
 
 ## backend/services/indexing_status_service.py (added US#9389384, 2026-07-11)
 
