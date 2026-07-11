@@ -21,3 +21,4 @@ from .eligibility_simulation_result import EligibilitySimulationResult
 from .session_secondary_track_memory import SessionSecondaryTrackMemory
 from .explanation import Explanation
 from .institutional_confirmation_alert import InstitutionalConfirmationAlert
+from .document import Document
