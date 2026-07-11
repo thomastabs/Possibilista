@@ -9,9 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from backend.api import router as api_router
-from backend.config import settings
+from backend.config import settings, validate_required_environment_variables
 from backend.db import async_session_factory, engine
 from backend.models.student_session import StudentSession
+
+# Fails fast (SystemExit) if a required environment variable — currently just DATABASE_URL —
+# is unset, before the FastAPI app or DB engine are even constructed (Story 9402359).
+validate_required_environment_variables()
 
 app = FastAPI(title="Possibilista")
 
