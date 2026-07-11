@@ -1,12 +1,15 @@
-"""Family-focused exploration path explanation service."""
+"""Family-focused exploration path and explanation services."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.models.explanation import Explanation
 from backend.services.profile_summary import (
     fetch_student_interests,
     fetch_student_motivation,
@@ -111,4 +114,48 @@ async def get_exploration_path_explanation(db: AsyncSession, student_session_id:
         "motivations_explanation": motivations_explanation,
         "academic_areas_explanation": academic_areas_explanation,
         "no_data": False,
+    }
+
+
+async def get_fact_interpretation_distinction(db: AsyncSession, explanation_id: str) -> dict[str, Any]:
+    """Fetch an Explanation record and expose its fact/interpretation distinction (Story 9389398).
+
+    Returns ``unavailable_info=True`` with empty facts/interpretations when no record exists for
+    the given ``explanation_id``, or when the lookup itself fails — this is how the system
+    "states it lacks a basis to answer" rather than surfacing a 500.
+    """
+
+    try:
+        result = await db.execute(
+            select(Explanation).where(Explanation.explanation_id == explanation_id)
+        )
+        explanation = result.scalar_one_or_none()
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to load explanation for fact-interpretation distinction.",
+            extra={"explanation_id": explanation_id},
+        )
+        return {"facts": [], "interpretations": [], "unavailable_info": True}
+
+    if explanation is None:
+        logger.info(
+            "No explanation record found for fact-interpretation distinction.",
+            extra={"explanation_id": explanation_id},
+        )
+        return {"facts": [], "interpretations": [], "unavailable_info": True}
+
+    logger.info(
+        "Retrieved explanation fact-interpretation distinction.",
+        extra={
+            "explanation_id": explanation_id,
+            "facts_count": len(explanation.facts),
+            "interpretations_count": len(explanation.interpretations),
+            "unavailable_info": explanation.unavailable_info,
+        },
+    )
+
+    return {
+        "facts": list(explanation.facts),
+        "interpretations": list(explanation.interpretations),
+        "unavailable_info": explanation.unavailable_info,
     }
