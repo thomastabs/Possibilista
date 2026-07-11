@@ -67,3 +67,45 @@ school/family platform tier — those are later phases.
 - General Exam Guide 2026 (calendar, phases, registrations, deadlines).
 - Secondary-track definitions (disciplines: trienais, bienais, anuais).
 - Higher-education courses (entrance exams and compatibilities).
+
+## Running PostgreSQL Locally (Docker)
+
+The backend expects PostgreSQL (with the pgvector extension) reachable at the connection
+string in `backend/config.py`'s `database_url` default
+(`postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`). A
+`Dockerfile` and `docker-compose.yml` at the repo root run it in a container with matching
+default credentials.
+
+Start it with the port-availability check script rather than calling Docker Compose
+directly, so a port conflict fails fast with a clear message instead of a cryptic Docker
+error:
+
+```bash
+./start_postgres.sh
+```
+
+This builds the image (based on `pgvector/pgvector:pg15`, not the plain `postgres` image,
+so `CREATE EXTENSION vector` in the Alembic migrations succeeds) and runs
+`docker compose up` (or `docker-compose up` if you only have the legacy binary installed).
+
+### PostgreSQL Port Conflict Resolution
+
+If port 5432 is already in use on your machine — another Postgres instance, a different
+project's container, etc. — `start_postgres.sh` detects it before Docker even tries to bind
+the port, and exits with a message telling you to either free the port or use a different
+one. To use a different host port, set `POSTGRES_HOST_PORT` when starting:
+
+```bash
+POSTGRES_HOST_PORT=5433 ./start_postgres.sh
+```
+
+Or, if you're calling `docker compose` directly instead of the script:
+
+```bash
+POSTGRES_HOST_PORT=5433 docker compose up
+```
+
+Either form maps the container's internal port 5432 to `5433` on the host instead of the
+default — `docker-compose.yml`'s `ports:` mapping already reads this variable, so no file
+edits are needed. If you change the host port, update `backend/config.py`'s `database_url`
+(or your `.env` override) to match, e.g. `...@localhost:5433/possibilista`.
