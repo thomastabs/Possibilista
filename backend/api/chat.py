@@ -40,6 +40,13 @@ class ChatMessageResponse(BaseModel):
         description="True when the question covers a special case or exception requiring "
         "human or institutional confirmation.",
     )
+    is_fact: bool = Field(
+        description="True when the answer includes at least one documented fact grounded "
+        "in official sources.",
+    )
+    is_interpretation: bool = Field(
+        description="True when the answer includes interpretative or uncertain content.",
+    )
     session_id: str
 
 
@@ -77,6 +84,8 @@ async def persist_chat_message(
         interpretations=response["interpretations"],
         insufficient_info=response["insufficient_info"],
         requires_confirmation=response["requires_confirmation"],
+        is_fact=response["is_fact"],
+        is_interpretation=response["is_interpretation"],
         previous_message_id=UUID(previous_message_id) if previous_message_id else None,
         context_tokens=response.get("context_tokens"),
     )
@@ -130,6 +139,8 @@ async def post_chat_message(
             "interpretations_count": len(response["interpretations"]),
             "insufficient_info": response["insufficient_info"],
             "requires_confirmation": response["requires_confirmation"],
+            "is_fact": response["is_fact"],
+            "is_interpretation": response["is_interpretation"],
         },
     )
 

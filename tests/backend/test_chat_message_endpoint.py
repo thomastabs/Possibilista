@@ -148,6 +148,53 @@ def test_post_chat_message_persists_requires_confirmation_flag_in_database():
     assert db.added[0].requires_confirmation is True
 
 
+def test_post_chat_message_persists_is_fact_flag_for_a_grounded_answer():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=10)
+    db = DummyDB(session=session)
+
+    response = asyncio.run(
+        post_chat_message(
+            payload=type(
+                "Payload",
+                (),
+                {"message": "What are the professional tracks?", "session_id": str(session_id)},
+            )(),
+            _credentials=object(),
+            db=db,
+        )
+    )
+
+    assert response.is_fact is True
+    assert response.is_interpretation is False
+    assert db.added[0].is_fact is True
+    assert db.added[0].is_interpretation is False
+
+
+def test_post_chat_message_persists_is_interpretation_flag_for_an_advice_answer():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=10)
+    db = DummyDB(session=session)
+
+    response = asyncio.run(
+        post_chat_message(
+            payload=type(
+                "Payload",
+                (),
+                {
+                    "message": "Which professional track would you recommend for me?",
+                    "session_id": str(session_id),
+                },
+            )(),
+            _credentials=object(),
+            db=db,
+        )
+    )
+
+    assert response.is_interpretation is True
+    assert db.added[0].is_interpretation is True
+
+
 def test_resolve_student_session_rejects_unknown_session():
     db = DummyDB(session=None)
 
@@ -218,6 +265,8 @@ def test_post_chat_message_endpoint_returns_200_with_full_shape():
         "interpretations",
         "insufficient_info",
         "requires_confirmation",
+        "is_fact",
+        "is_interpretation",
         "session_id",
     }
     assert payload["session_id"] == str(session_id)
@@ -314,6 +363,8 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
         "interpretations",
         "insufficient_info",
         "requires_confirmation",
+        "is_fact",
+        "is_interpretation",
         "session_id",
     }
     assert isinstance(payload["answer"], str) and payload["answer"]
@@ -321,6 +372,8 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
     assert isinstance(payload["interpretations"], list)
     assert isinstance(payload["insufficient_info"], bool)
     assert isinstance(payload["requires_confirmation"], bool)
+    assert isinstance(payload["is_fact"], bool)
+    assert isinstance(payload["is_interpretation"], bool)
     assert payload["session_id"] == str(session_id)
 
 

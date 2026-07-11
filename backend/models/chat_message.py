@@ -6,7 +6,9 @@ context fields used to link turns and detect topic changes across a
 multi-turn conversation (Story 9389366): ``previous_message_id`` points to
 the prior turn in the same session, and ``context_tokens`` records the
 topic identity (matched official-document titles) of this turn so the next
-turn can decide whether to retain or reset context.
+turn can decide whether to retain or reset context. ``is_fact`` and
+``is_interpretation`` mark, at the whole-message level, whether the answer
+carries any documented facts and/or interpretative content (Story 9389394).
 """
 
 from __future__ import annotations
@@ -46,6 +48,8 @@ class ChatMessage(Base):
     )
     insufficient_info: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     requires_confirmation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    is_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    is_interpretation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     previous_message_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("chat_message.id", ondelete="SET NULL"),

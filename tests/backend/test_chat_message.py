@@ -24,6 +24,8 @@ def test_chat_message_table_shape():
         "interpretations",
         "insufficient_info",
         "requires_confirmation",
+        "is_fact",
+        "is_interpretation",
         "previous_message_id",
         "context_tokens",
         "timestamp",
@@ -80,6 +82,21 @@ def test_chat_message_defaults_are_empty_and_false():
     assert message.interpretations is None or message.interpretations == []
     assert message.insufficient_info in (None, False)
     assert message.requires_confirmation in (None, False)
+    assert message.is_fact in (None, False)
+    assert message.is_interpretation in (None, False)
+
+
+def test_chat_message_persists_fact_and_interpretation_flags():
+    message = ChatMessage(
+        session_id=uuid4(),
+        message="What are the professional tracks?",
+        answer="According to the official documents...",
+        is_fact=True,
+        is_interpretation=False,
+    )
+
+    assert message.is_fact is True
+    assert message.is_interpretation is False
 
 
 def test_build_chat_response_with_context_retains_context_for_related_follow_up():

@@ -145,6 +145,8 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "interpretations": interpretations,
         "insufficient_info": insufficient_info,
         "requires_confirmation": requires_confirmation,
+        "is_fact": bool(facts),
+        "is_interpretation": bool(interpretations),
         "session_id": session_id,
         "topic_tokens": _topic_tokens(documents),
     }
@@ -227,6 +229,7 @@ def build_chat_response_with_context(
         base_response["answer"] = "Continuing from the previous topic: " + " ".join(carried_facts)
         base_response["facts"] = carried_facts
         base_response["insufficient_info"] = False
+        base_response["is_fact"] = bool(carried_facts)
         base_response["context_tokens"] = previous_tokens or current_tokens
         base_response["previous_message_id"] = _message_id_str(previous_message)
         return base_response
@@ -325,6 +328,8 @@ def build_chat_response_for_message(
         "interpretations": interpretations,
         "insufficient_info": insufficient_info,
         "requires_confirmation": requires_confirmation,
+        "is_fact": bool(facts),
+        "is_interpretation": bool(interpretations),
         "session_id": session_id,
         "topic_tokens": topic_tokens,
         "context_tokens": topic_tokens,
