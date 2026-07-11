@@ -51,22 +51,32 @@ below), so there was no real orchestration code to migrate.
   `Document.embedding` (already a real `pgvector.sqlalchemy.Vector` column — only the value
   generation is stubbed).
 
-## backend/services/document_ingestion_service.py (added US#9389382, extended US#9389384, 2026-07-11)
+## backend/services/document_ingestion_service.py (added US#9389382, extended US#9389384/9389386, 2026-07-11)
 
 - **Stubbed**: `_LEGAL_FRAMEWORK_DOCUMENT_CATALOG` is a small hardcoded list of two valid raw
-  candidate documents; `_EXAM_GUIDE_DOCUMENT` is a single hardcoded raw document — both stand in
+  candidate documents; `_EXAM_GUIDE_DOCUMENT` is a single hardcoded raw document;
+  `_SECONDARY_TRACK_DEFINITIONS_CATALOG` is a single hardcoded raw document — all three stand in
   for a real document source (file upload, admin-provided corpus, or external legal/exam-database
-  fetch). "Corrupted"/"missing" scenarios are exercised via explicit test fixtures/parameters
-  (`document=None` for the exam guide) rather than baked into the defaults, since the defaults are
-  what the indexing endpoints actually index.
+  fetch). "Corrupted"/"missing"/"incomplete" scenarios are exercised via explicit test
+  fixtures/parameters (`document=None` for the exam guide; a hand-written incomplete document for
+  secondary-track definitions) rather than baked into the defaults, since the defaults are what
+  the indexing endpoints actually index.
 - **Real implementation would need**: a real document source (upload endpoint, filesystem watch,
-  or external fetch) instead of the static catalog/document, and real file-format validation (e.g.
-  PDF/DOCX parsing with a library like `unstructured` or `pypdf`) instead of the "required fields
-  present" check used to detect "corruption"/"missing" here.
-- **Also note**: `POST /api/v1/documents/index-legal-framework` was not in the locked
-  `Apex Spec Context/technical-spec.md` — that spec maps Story 9389382 only to
-  `GET /api/v1/documents/indexing-status`. User chose (2026-07-11) to amend the spec and add the
-  new endpoint rather than build toward the existing `indexing-status` contract instead.
+  or external fetch) instead of the static catalog/document, and real file-format/content
+  validation (e.g. PDF/DOCX parsing with a library like `unstructured` or `pypdf`, and genuine
+  structural analysis of parsed sections) instead of the "required fields present" +
+  "content mentions these keywords" checks used to detect "corruption"/"missing"/"incomplete"
+  here.
+- **Also note**: `POST /api/v1/documents/index-legal-framework` (US#9389382) and
+  `POST /api/v1/documents/index-secondary-track-definitions` (US#9389386) were not in the locked
+  `Apex Spec Context/technical-spec.md` — that spec maps both stories only to
+  `GET /api/v1/documents/indexing-status`. User chose (2026-07-11, for 9382, applied consistently
+  to 9386) to amend the spec and add each new endpoint rather than build toward the existing
+  `indexing-status` contract instead. Note the inconsistency this leaves: US#9389384's exam guide
+  got no dedicated trigger endpoint at all (no pack asked for one) — only legal_framework and
+  secondary_track_definitions have their own `POST /index-*` endpoint; the generic
+  `POST /api/v1/documents/index-update` (Story 9389391, not yet built) is presumably meant to be
+  the single trigger eventually, and these per-type endpoints may end up redundant with it.
 
 ## backend/services/indexing_status_service.py (added US#9389384, 2026-07-11)
 
