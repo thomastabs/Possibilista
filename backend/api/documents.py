@@ -1,4 +1,4 @@
-"""Document indexing endpoints (Stories 9389382, 9389384).
+"""Document indexing endpoints (Stories 9389382, 9389384, 9389386).
 
 ``auth: role:admin`` in the technical spec is not backed by a real role/permission system in
 this repo slice (none exists yet for any endpoint) — enforced here as plain bearer-token
@@ -15,7 +15,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.profiling import get_db_session
-from backend.services.document_ingestion_service import ingest_legal_framework_documents
+from backend.services.document_ingestion_service import (
+    ingest_legal_framework_documents,
+    ingest_secondary_track_definition_documents,
+)
 from backend.services.indexing_status_service import get_indexing_status
 
 logger = logging.getLogger(__name__)
@@ -29,6 +32,17 @@ INDEXING_FAILURE_MESSAGE_TEMPLATE = (
     "corrupted and excluded: {errors}"
 )
 INDEXING_UNEXPECTED_FAILURE_MESSAGE = "Unable to index legal framework documents."
+
+SECONDARY_TRACK_DEFINITIONS_SUCCESS_MESSAGE_TEMPLATE = (
+    "Indexed {count} secondary-track definition document(s)."
+)
+SECONDARY_TRACK_DEFINITIONS_FAILURE_MESSAGE_TEMPLATE = (
+    "Indexed {indexed_count} secondary-track definition document(s); {error_count} document(s) "
+    "were incomplete or corrupted: {errors}"
+)
+SECONDARY_TRACK_DEFINITIONS_UNEXPECTED_FAILURE_MESSAGE = (
+    "Unable to index secondary-track definition documents."
+)
 
 
 class DocumentIndexingResponse(BaseModel):
@@ -78,6 +92,50 @@ async def post_index_legal_framework(
 
     logger.info(
         "Legal framework document indexing request completed.",
+        extra={
+            "status": status_value,
+            "indexed_count": indexed_count,
+            "errors_count": len(errors),
+        },
+    )
+
+    return DocumentIndexingResponse(status=status_value, message=message)
+
+
+@router.post("/index-secondary-track-definitions", response_model=DocumentIndexingResponse)
+async def post_index_secondary_track_definitions(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentIndexingResponse:
+    logger.info(
+        "Received secondary-track definitions indexing request.",
+        extra={"scheme": credentials.scheme},
+    )
+
+    try:
+        result = await ingest_secondary_track_definition_documents(db)
+    except Exception:
+        logger.exception("Secondary-track definitions indexing failed unexpectedly.")
+        return DocumentIndexingResponse(
+            status="failed", message=SECONDARY_TRACK_DEFINITIONS_UNEXPECTED_FAILURE_MESSAGE
+        )
+
+    indexed_count = result["indexed_count"]
+    errors = result["errors"]
+
+    if errors:
+        status_value = "failed"
+        message = SECONDARY_TRACK_DEFINITIONS_FAILURE_MESSAGE_TEMPLATE.format(
+            indexed_count=indexed_count,
+            error_count=len(errors),
+            errors="; ".join(errors),
+        )
+    else:
+        status_value = "success"
+        message = SECONDARY_TRACK_DEFINITIONS_SUCCESS_MESSAGE_TEMPLATE.format(count=indexed_count)
+
+    logger.info(
+        "Secondary-track definitions indexing request completed.",
         extra={
             "status": status_value,
             "indexed_count": indexed_count,

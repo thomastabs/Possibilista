@@ -101,6 +101,75 @@ def test_index_legal_framework_endpoint_requires_bearer_authentication():
     assert response.status_code in (401, 403)
 
 
+def test_index_secondary_track_definitions_endpoint_returns_success_status():
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-secondary-track-definitions",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert "Indexed" in payload["message"]
+
+
+def test_index_secondary_track_definitions_endpoint_returns_failure_for_incomplete_documents(
+    monkeypatch,
+):
+    async def fake_ingest(db):
+        return {
+            "indexed_count": 0,
+            "errors": [
+                "incomplete-doc: Incomplete secondary-track definition: missing exam requirements."
+            ],
+        }
+
+    monkeypatch.setattr(
+        documents_module, "ingest_secondary_track_definition_documents", fake_ingest
+    )
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-secondary-track-definitions",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert "incomplete-doc" in payload["message"]
+
+
+def test_index_secondary_track_definitions_endpoint_reports_failure_on_unexpected_exception(
+    monkeypatch,
+):
+    async def failing_ingest(db):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        documents_module, "ingest_secondary_track_definition_documents", failing_ingest
+    )
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-secondary-track-definitions",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+
+
+def test_index_secondary_track_definitions_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post("/api/v1/documents/index-secondary-track-definitions")
+
+    assert response.status_code in (401, 403)
+
+
 def test_indexing_status_endpoint_returns_status_for_all_document_types(monkeypatch):
     async def fake_status(db):
         return {
