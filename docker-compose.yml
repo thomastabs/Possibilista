@@ -1,0 +1,32 @@
+# Docker Compose configuration for Possibilista's PostgreSQL container (Story US#9402358).
+# Builds the Dockerfile at the repo root (pgvector/pgvector:pg15 base — see Dockerfile
+# comments for why the plain postgres image isn't used).
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: possibilista-postgres
+    environment:
+      # Defaults match backend/config.py's default database_url; override via a .env file
+      # or the shell environment if you need different credentials.
+      POSTGRES_USER: ${POSTGRES_USER:-possibilista}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-possibilista}
+      POSTGRES_DB: ${POSTGRES_DB:-possibilista}
+    ports:
+      # Host port is overridable via POSTGRES_HOST_PORT — if 5432 is already taken on your
+      # machine, run `POSTGRES_HOST_PORT=5433 docker compose up` instead of editing this
+      # file. See the "PostgreSQL Port Conflict Resolution" section in README.md.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # Named volume persists database data across container restarts/recreations.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-possibilista}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
