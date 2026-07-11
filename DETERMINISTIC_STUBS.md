@@ -35,7 +35,9 @@ below), so there was no real orchestration code to migrate.
 
 - **Stubbed**: `_INTERPRETATION_TERMS` / `_CRITICAL_DECISION_TERMS` / `_contains_any` — fact vs.
   interpretation classification and critical-decision detection are keyword-set membership
-  checks, not an LLM judgment call.
+  checks, not an LLM judgment call. `no_basis` (US#9389390, 2026-07-11) is likewise a
+  deterministic derivation (interpretative keyword match + zero document matches), not an LLM
+  judging whether it actually has enough basis to interpret.
 - **Real implementation would need**: an LLM call (Orchestrator/Secondary agent per
   `tech-stack.md`) classifying the generated answer's segments as fact-grounded vs. interpretative,
   and a similar LLM-based critical-decision classifier instead of a fixed term list.
