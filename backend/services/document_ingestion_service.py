@@ -1,5 +1,6 @@
 """Document ingestion pipelines: legal framework (Story 9389382), general exam guide
-(Story 9389384), and secondary-track definitions (Story 9389386).
+(Story 9389384), secondary-track definitions (Story 9389386), and higher-ed course
+requirements (Story 9389388).
 
 Deterministic stub consistent with the rest of this repo's RAG surface (see
 ``natural_language_question.py`` and ``DETERMINISTIC_STUBS.md``) — no live embedding or LLM
@@ -10,12 +11,17 @@ simulates it being missing, so the system detects the absence rather than indexi
 Secondary-track definition documents are also a batch, but unlike the other two, a document
 missing *completeness* (not missing required fields, just not covering every required topic)
 is still persisted — with ``indexed=False`` and its ``indexing_errors`` set — so it shows up
-for admin review instead of vanishing silently (Story 9389386, scenario 2).
+for admin review instead of vanishing silently (Story 9389386, scenario 2). Higher-ed
+requirement documents are a batch too, with a fourth distinct failure mode: an *outdated*
+version (older than the latest known version year) is excluded entirely and never persisted
+at all (Story 9389388, scenario 2) — closer to legal framework's "corrupted" handling than to
+secondary-track's "persist but flag" handling.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, TypedDict
 from uuid import uuid4
 
@@ -32,6 +38,8 @@ LEGAL_FRAMEWORK_DOCUMENT_TYPE = "legal_framework"
 EXAM_GUIDE_DOCUMENT_TYPE = "exam_guide"
 EXAM_GUIDE_MISSING_MESSAGE = "General Exam Guide document is missing."
 SECONDARY_TRACK_DEFINITIONS_DOCUMENT_TYPE = "secondary_track_definitions"
+HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE = "higher_ed_requirements"
+HIGHER_ED_REQUIREMENTS_LATEST_VERSION_YEAR = 2026
 
 _REQUIRED_FIELDS = ("title", "content", "source_url", "version_label")
 _COMPLETENESS_MARKERS = (
@@ -59,6 +67,14 @@ class RawExamGuideDocument(TypedDict, total=False):
 
 
 class RawSecondaryTrackDefinitionDocument(TypedDict, total=False):
+    id: str
+    title: str
+    content: str
+    source_url: str
+    version_label: str
+
+
+class RawHigherEdRequirementDocument(TypedDict, total=False):
     id: str
     title: str
     content: str
@@ -105,6 +121,21 @@ def _missing_completeness_markers(content: str) -> list[str]:
 
     content_lower = content.casefold()
     return [marker for marker in _COMPLETENESS_MARKERS if marker not in content_lower]
+
+
+def _version_year(version_label: str) -> int | None:
+    match = re.match(r"(\d{4})", version_label)
+    return int(match.group(1)) if match else None
+
+
+def _is_outdated_higher_ed_requirements_version(version_label: str) -> bool:
+    """A version older than the latest known year is outdated; an unrecognized format isn't
+    treated as outdated, since there's no basis to judge it either way."""
+
+    year = _version_year(version_label)
+    if year is None:
+        return False
+    return year < HIGHER_ED_REQUIREMENTS_LATEST_VERSION_YEAR
 
 
 async def _upsert_document(
@@ -380,6 +411,106 @@ async def ingest_secondary_track_definition_documents(
 
     logger.info(
         "Secondary-track definition document ingestion complete.",
+        extra={
+            "indexed_count": indexed_count,
+            "errors_count": len(errors),
+            "candidates_count": len(candidate_documents),
+        },
+    )
+
+    return {"indexed_count": indexed_count, "errors": errors}
+
+
+_HIGHER_ED_REQUIREMENTS_CATALOG: list[RawHigherEdRequirementDocument] = [
+    {
+        "id": "higher-ed-requirements-2026",
+        "title": "Higher Education Course Requirements — Entrance Exams and Admission Averages",
+        "content": (
+            "Describes entrance exam requirements, exam weights, and admission averages for "
+            "higher education courses compatible with each secondary track."
+        ),
+        "source_url": "https://www.dge.mec.pt/requisitos-ensino-superior",
+        "version_label": "2026-edition",
+    },
+]
+
+
+async def ingest_higher_ed_requirements_documents(
+    db: AsyncSession,
+    documents: list[RawHigherEdRequirementDocument] | None = None,
+) -> dict[str, Any]:
+    """Ingest higher-ed course requirement documents: validate freshness, embed, and persist.
+
+    Two failure modes, both resulting in full exclusion (Story 9389388):
+    - Missing required fields: same as legal framework — no row to form, logged and skipped.
+    - Outdated version (older than ``HIGHER_ED_REQUIREMENTS_LATEST_VERSION_YEAR``): logged and
+      skipped — "the system requires updated versions before indexing" (scenario 2) means no
+      Document row is persisted or marked indexed for an outdated document at all, unlike
+      secondary-track definitions' "incomplete but persisted" handling.
+    """
+
+    candidate_documents = (
+        documents if documents is not None else _HIGHER_ED_REQUIREMENTS_CATALOG
+    )
+
+    indexed_count = 0
+    errors: list[str] = []
+
+    for candidate in candidate_documents:
+        document_id = candidate.get("id", "<unknown>")
+        field_errors = _validate_document_fields(candidate)
+
+        if field_errors:
+            error_summary = "; ".join(field_errors)
+            logger.error(
+                "Corrupted higher-ed requirements document detected; excluding from "
+                "indexing.",
+                extra={"document_id": document_id, "errors": field_errors},
+            )
+            errors.append(f"{document_id}: {error_summary}")
+            continue
+
+        version_label = candidate["version_label"]
+        if _is_outdated_higher_ed_requirements_version(version_label):
+            outdated_error = (
+                f"Outdated version '{version_label}'; requires a version from "
+                f"{HIGHER_ED_REQUIREMENTS_LATEST_VERSION_YEAR} or later."
+            )
+            logger.error(
+                "Outdated higher-ed requirements document detected; excluding from "
+                "indexing.",
+                extra={
+                    "document_id": document_id,
+                    "title": candidate.get("title", "<unknown>"),
+                    "version_label": version_label,
+                },
+            )
+            errors.append(f"{document_id}: {outdated_error}")
+            continue
+
+        embedding = generate_embedding(candidate["content"])
+
+        try:
+            await _upsert_document(
+                db, candidate, HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE, embedding
+            )
+        except SQLAlchemyError:
+            await db.rollback()
+            logger.exception(
+                "Failed to persist higher-ed requirements document.",
+                extra={"document_id": document_id},
+            )
+            errors.append(f"{document_id}: database persistence failed.")
+            continue
+
+        indexed_count += 1
+        logger.info(
+            "Indexed higher-ed requirements document.",
+            extra={"document_id": document_id, "source_url": candidate["source_url"]},
+        )
+
+    logger.info(
+        "Higher-ed requirements document ingestion complete.",
         extra={
             "indexed_count": indexed_count,
             "errors_count": len(errors),

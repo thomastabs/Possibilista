@@ -5,13 +5,31 @@ from backend.models.document import EMBEDDING_DIMENSIONS
 from backend.services.document_ingestion_service import (
     EXAM_GUIDE_DOCUMENT_TYPE,
     EXAM_GUIDE_MISSING_MESSAGE,
+    HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE,
     LEGAL_FRAMEWORK_DOCUMENT_TYPE,
     SECONDARY_TRACK_DEFINITIONS_DOCUMENT_TYPE,
     ingest_exam_guide_document,
+    ingest_higher_ed_requirements_documents,
     ingest_legal_framework_documents,
     ingest_secondary_track_definition_documents,
 )
 from backend.services.embedding_service import generate_embedding
+
+FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT = {
+    "id": "higher-ed-requirements-2026",
+    "title": "Higher Education Course Requirements",
+    "content": "Describes entrance exam requirements and admission averages.",
+    "source_url": "https://www.dge.mec.pt/requisitos-ensino-superior",
+    "version_label": "2026-edition",
+}
+
+OUTDATED_HIGHER_ED_REQUIREMENTS_DOCUMENT = {
+    "id": "outdated-higher-ed-requirements",
+    "title": "Higher Education Course Requirements (2019)",
+    "content": "Describes entrance exam requirements and admission averages.",
+    "source_url": "https://www.dge.mec.pt/requisitos-ensino-superior-2019",
+    "version_label": "2019-edition",
+}
 
 EXAM_GUIDE_DOCUMENT = {
     "id": "general-exam-guide-2026",
@@ -381,3 +399,98 @@ def test_secondary_track_definitions_ingestion_handles_mixed_batch():
     indexed_states = {document.source_url: document.indexed for document in db.added}
     assert indexed_states[COMPLETE_SECONDARY_TRACK_DEFINITION["source_url"]] is True
     assert indexed_states[INCOMPLETE_SECONDARY_TRACK_DEFINITION["source_url"]] is False
+
+
+def test_higher_ed_requirements_ingestion_indexes_fresh_documents():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_higher_ed_requirements_documents(db, [FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT])
+    )
+
+    assert result["indexed_count"] == 1
+    assert result["errors"] == []
+    assert len(db.added) == 1
+    indexed_document = db.added[0]
+    assert indexed_document.document_type == HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE
+    assert indexed_document.indexed is True
+    assert indexed_document.embedding is not None
+
+
+def test_higher_ed_requirements_ingestion_rejects_outdated_documents():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_higher_ed_requirements_documents(db, [OUTDATED_HIGHER_ED_REQUIREMENTS_DOCUMENT])
+    )
+
+    assert result["indexed_count"] == 0
+    assert len(result["errors"]) == 1
+    assert "outdated-higher-ed-requirements" in result["errors"][0]
+    assert "2019-edition" in result["errors"][0]
+
+
+def test_higher_ed_requirements_ingestion_does_not_persist_outdated_documents():
+    db = DummyDB()
+
+    asyncio.run(
+        ingest_higher_ed_requirements_documents(db, [OUTDATED_HIGHER_ED_REQUIREMENTS_DOCUMENT])
+    )
+
+    assert db.added == []
+    assert db.committed == 0
+
+
+def test_higher_ed_requirements_ingestion_logs_error_for_outdated_documents(caplog):
+    db = DummyDB()
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(
+            ingest_higher_ed_requirements_documents(
+                db, [OUTDATED_HIGHER_ED_REQUIREMENTS_DOCUMENT]
+            )
+        )
+
+    assert any(
+        "Outdated higher-ed requirements document detected" in record.message
+        for record in caplog.records
+    )
+
+
+def test_higher_ed_requirements_ingestion_excludes_documents_missing_required_fields():
+    db = DummyDB()
+    missing_fields_document = {**FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT, "title": ""}
+
+    result = asyncio.run(
+        ingest_higher_ed_requirements_documents(db, [missing_fields_document])
+    )
+
+    assert result["indexed_count"] == 0
+    assert db.added == []
+    assert "Missing or empty required field 'title'" in result["errors"][0]
+
+
+def test_higher_ed_requirements_ingestion_handles_mixed_batch():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_higher_ed_requirements_documents(
+            db,
+            [FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT, OUTDATED_HIGHER_ED_REQUIREMENTS_DOCUMENT],
+        )
+    )
+
+    assert result["indexed_count"] == 1
+    assert len(result["errors"]) == 1
+    assert len(db.added) == 1
+    assert db.added[0].source_url == FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT["source_url"]
+
+
+def test_higher_ed_requirements_ingestion_accepts_a_version_newer_than_expected():
+    db = DummyDB()
+    newer_document = {**FRESH_HIGHER_ED_REQUIREMENTS_DOCUMENT, "version_label": "2027-edition"}
+
+    result = asyncio.run(ingest_higher_ed_requirements_documents(db, [newer_document]))
+
+    assert result["indexed_count"] == 1
+    assert result["errors"] == []
