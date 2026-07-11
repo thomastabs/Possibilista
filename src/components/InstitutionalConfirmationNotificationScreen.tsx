@@ -19,6 +19,7 @@ export function InstitutionalConfirmationNotificationScreen({
   const [error, setError] = useState<string | null>(null);
   const [alertPresent, setAlertPresent] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +67,7 @@ export function InstitutionalConfirmationNotificationScreen({
 
         setAlertPresent(Boolean(data.alert_present));
         setAlertMessage(data.alert_message || "");
+        setDismissed(false);
       } catch (loadError) {
         if (!active) {
           return;
@@ -98,7 +100,7 @@ export function InstitutionalConfirmationNotificationScreen({
     return <p role="alert">{error}</p>;
   }
 
-  if (!alertPresent) {
+  if (!alertPresent || dismissed) {
     return null;
   }
 
@@ -109,6 +111,9 @@ export function InstitutionalConfirmationNotificationScreen({
       aria-label="Institutional confirmation notification"
     >
       <p>{alertMessage}</p>
+      <button type="button" onClick={() => setDismissed(true)}>
+        Close
+      </button>
     </div>
   );
 }
