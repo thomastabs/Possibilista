@@ -48,3 +48,51 @@ test("handles API errors gracefully by showing an error message", async () => {
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(await screen.findByRole("alert")).toHaveTextContent("Explanation not found.");
 });
+
+test("states it lacks a basis to answer and suggests human confirmation when unavailable_info is true", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      facts: [],
+      interpretations: [],
+      unavailable_info: true,
+    }),
+  });
+
+  render(
+    <FactInterpretationDistinctionScreen bearerToken="token" explanationId="explanation-3" />,
+  );
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+  expect(await screen.findByRole("status")).toHaveTextContent(
+    "The system lacks a basis to answer this question or topic.",
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Please seek human or institutional confirmation for this topic.",
+  );
+  expect(screen.queryByText("Factual Information")).not.toBeInTheDocument();
+  expect(screen.queryByText("Interpretations and Suggestions")).not.toBeInTheDocument();
+});
+
+test("does not show the unavailable info message when facts and interpretations are available", async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      facts: ["The professional track leads to a secondary qualification."],
+      interpretations: ["This may suit a student who prefers hands-on learning."],
+      unavailable_info: false,
+    }),
+  });
+
+  render(
+    <FactInterpretationDistinctionScreen bearerToken="token" explanationId="explanation-4" />,
+  );
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  await screen.findByText("Factual Information");
+
+  expect(
+    screen.queryByText("The system lacks a basis to answer this question or topic."),
+  ).not.toBeInTheDocument();
+});
