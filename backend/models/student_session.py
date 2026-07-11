@@ -45,3 +45,8 @@ class StudentSession(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    institutional_confirmation_alert: Mapped["InstitutionalConfirmationAlert | None"] = relationship(
+        back_populates="session",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
