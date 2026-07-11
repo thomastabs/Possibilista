@@ -1,8 +1,10 @@
 import asyncio
 import logging
 
+from backend.models.document import EMBEDDING_DIMENSIONS
 from backend.services.document_ingestion_service import (
     LEGAL_FRAMEWORK_DOCUMENT_TYPE,
+    _generate_embedding,
     ingest_legal_framework_documents,
 )
 
@@ -20,9 +22,10 @@ class DummyDB:
         self.added = []
         self.committed = 0
         self.rolled_back = 0
+        self.existing_document = None
 
     async def execute(self, statement):
-        return DummyResult(None)
+        return DummyResult(self.existing_document)
 
     def add(self, record):
         self.added.append(record)
@@ -115,3 +118,69 @@ def test_legal_framework_ingestion_continues_processing_after_a_corrupted_docume
     assert result["indexed_count"] == 2
     assert len(result["errors"]) == 1
     assert len(db.added) == 2
+
+
+def test_generate_embedding_is_deterministic_for_identical_content():
+    content = "Establishes the legal framework for secondary education tracks."
+
+    first = _generate_embedding(content)
+    second = _generate_embedding(content)
+
+    assert first == second
+    assert len(first) == EMBEDDING_DIMENSIONS
+
+
+def test_generate_embedding_differs_for_different_content():
+    embedding_one = _generate_embedding("Establishes the legal framework for secondary tracks.")
+    embedding_two = _generate_embedding("Regulates professional courses within secondary education.")
+
+    assert embedding_one != embedding_two
+
+
+def test_legal_framework_ingestion_stores_distinct_embeddings_for_distinct_documents():
+    db = DummyDB()
+    second_valid = {
+        "id": "second-valid-doc",
+        "title": "Portaria n.º 235-A/2018",
+        "content": "Regulates professional courses within secondary education.",
+        "source_url": "https://www.dge.mec.pt/legislacao/portaria-235-a-2018",
+        "version_label": "2018-consolidated",
+    }
+
+    asyncio.run(ingest_legal_framework_documents(db, [VALID_DOCUMENT, second_valid]))
+
+    embeddings = [document.embedding for document in db.added]
+    assert len(embeddings) == 2
+    assert embeddings[0] != embeddings[1]
+    assert all(len(embedding) == EMBEDDING_DIMENSIONS for embedding in embeddings)
+
+
+def test_legal_framework_ingestion_updates_embedding_when_document_is_reindexed():
+    db = DummyDB()
+    updated_content = {**VALID_DOCUMENT, "content": "Updated legal framework content."}
+
+    asyncio.run(ingest_legal_framework_documents(db, [VALID_DOCUMENT]))
+    original_embedding = db.added[0].embedding
+
+    db.added = []
+    db.existing_document = _as_existing(VALID_DOCUMENT, original_embedding)
+    asyncio.run(ingest_legal_framework_documents(db, [updated_content]))
+
+    assert db.existing_document.content == "Updated legal framework content."
+    assert db.existing_document.embedding != original_embedding
+
+
+class _ExistingDocument:
+    def __init__(self, source_url, content, embedding):
+        self.source_url = source_url
+        self.content = content
+        self.embedding = embedding
+        self.title = ""
+        self.document_type = ""
+        self.version_label = ""
+        self.indexed = False
+        self.indexing_errors = []
+
+
+def _as_existing(candidate, embedding):
+    return _ExistingDocument(candidate["source_url"], candidate["content"], embedding)
