@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from backend.api.chat import router as chat_router
+from backend.api.documents import router as documents_router
 from backend.api.escalation import router as escalation_router
 from backend.api.family import router as family_router
 from backend.api.higher_ed import router as higher_ed_router
@@ -20,3 +21,4 @@ router.include_router(higher_ed_router)
 router.include_router(session_router)
 router.include_router(escalation_router)
 router.include_router(family_router)
+router.include_router(documents_router)
