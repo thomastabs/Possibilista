@@ -81,11 +81,13 @@ below), so there was no real orchestration code to migrate.
   to 9386 and 9388) to amend the spec and add each new endpoint rather than build toward the
   existing `indexing-status` contract instead. Note the inconsistency this leaves: US#9389384's
   exam guide got no dedicated trigger endpoint at all (no pack asked for one) — the other three
-  document types each have their own `POST /index-*` endpoint; the generic
-  `POST /api/v1/documents/index-update` (Story 9389391, not yet built) is presumably meant to be
-  the single trigger eventually, and these four per-type endpoints may end up redundant with it.
+  document types each have their own `POST /index-*` endpoint. **Update (US#9389391, 2026-07-11)**:
+  the generic `POST /api/v1/documents/index-update` is now built (`get_latest_known_document_versions`
+  + `reindex_all_official_documents`, reusing all four ingestion functions rather than duplicating
+  them) — the three per-type endpoints and this generic one now coexist rather than the generic one
+  replacing them; nothing in this repo currently removes the per-type endpoints.
 
-## backend/services/indexing_status_service.py (added US#9389384, 2026-07-11)
+## backend/services/indexing_status_service.py (added US#9389384, extended US#9389391, 2026-07-11)
 
 - **Stubbed**: "administrator alert" for a missing document (Story 9389384's exam guide, and any
   future missing document type) is an ERROR-level log entry plus a synthesized message in
@@ -95,6 +97,15 @@ below), so there was no real orchestration code to migrate.
 - **Real implementation would need**: a real alerting channel (email, Slack webhook, in-app
   admin notification) triggered when a document type's status flips to `missing`/`failed`,
   instead of relying on an admin polling the status endpoint.
+- **Stubbed (US#9389391)**: `detect_updated_documents` decides "updates are available" by
+  comparing stored `Document.version_label` against `get_latest_known_document_versions`'
+  hardcoded catalog versions — since the catalogs themselves never change at runtime, this
+  will only ever detect drift the first time a document type is indexed (going from "missing"
+  to "present"), never a genuine version bump, until the static catalogs in
+  `document_ingestion_service.py` are edited by hand.
+- **Real implementation would need**: a real upstream version source (e.g. polling the
+  official document publisher for a new edition, or an admin-triggered upload with its own
+  version_label) instead of a hardcoded catalog that only "updates" when a developer edits it.
 
 ## backend/services/document_retrieval_service.py (added US#9389389, 2026-07-11)
 
