@@ -10,6 +10,12 @@ class DummyResult:
     def scalar_one_or_none(self):
         return None
 
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
 
 class DummyDB:
     def __init__(self):
@@ -91,5 +97,80 @@ def test_index_legal_framework_endpoint_requires_bearer_authentication():
     client = _make_test_client(DummyDB())
 
     response = client.post("/api/v1/documents/index-legal-framework")
+
+    assert response.status_code in (401, 403)
+
+
+def test_indexing_status_endpoint_returns_status_for_all_document_types(monkeypatch):
+    async def fake_status(db):
+        return {
+            "legal_framework_status": "indexed",
+            "exam_guide_status": "missing",
+            "secondary_track_definitions_status": "missing",
+            "higher_ed_requirements_status": "missing",
+            "errors": ["exam_guide: document is missing."],
+        }
+
+    monkeypatch.setattr(documents_module, "get_indexing_status", fake_status)
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/indexing-status",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["legal_framework_status"] == "indexed"
+    assert payload["exam_guide_status"] == "missing"
+    assert payload["secondary_track_definitions_status"] == "missing"
+    assert payload["higher_ed_requirements_status"] == "missing"
+    assert "exam_guide: document is missing." in payload["errors"]
+
+
+def test_indexing_status_endpoint_reports_missing_exam_guide_alert(monkeypatch):
+    async def fake_status(db):
+        return {
+            "legal_framework_status": "indexed",
+            "exam_guide_status": "missing",
+            "secondary_track_definitions_status": "missing",
+            "higher_ed_requirements_status": "missing",
+            "errors": ["exam_guide: document is missing."],
+        }
+
+    monkeypatch.setattr(documents_module, "get_indexing_status", fake_status)
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/indexing-status",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    payload = response.json()
+    assert payload["exam_guide_status"] == "missing"
+    assert any("exam_guide" in error for error in payload["errors"])
+
+
+def test_indexing_status_endpoint_reports_all_types_missing_with_no_documents():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/indexing-status",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["legal_framework_status"] == "missing"
+    assert payload["exam_guide_status"] == "missing"
+    assert payload["secondary_track_definitions_status"] == "missing"
+    assert payload["higher_ed_requirements_status"] == "missing"
+    assert len(payload["errors"]) == 4
+
+
+def test_indexing_status_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.get("/api/v1/documents/indexing-status")
 
     assert response.status_code in (401, 403)

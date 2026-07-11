@@ -1,4 +1,4 @@
-"""Document indexing endpoints (Story 9389382).
+"""Document indexing endpoints (Stories 9389382, 9389384).
 
 ``auth: role:admin`` in the technical spec is not backed by a real role/permission system in
 this repo slice (none exists yet for any endpoint) — enforced here as plain bearer-token
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.profiling import get_db_session
 from backend.services.document_ingestion_service import ingest_legal_framework_documents
+from backend.services.indexing_status_service import get_indexing_status
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,14 @@ INDEXING_UNEXPECTED_FAILURE_MESSAGE = "Unable to index legal framework documents
 class DocumentIndexingResponse(BaseModel):
     status: str
     message: str
+
+
+class DocumentIndexingStatusResponse(BaseModel):
+    legal_framework_status: str
+    exam_guide_status: str
+    secondary_track_definitions_status: str
+    higher_ed_requirements_status: str
+    errors: list[str]
 
 
 @router.post("/index-legal-framework", response_model=DocumentIndexingResponse)
@@ -77,3 +86,29 @@ async def post_index_legal_framework(
     )
 
     return DocumentIndexingResponse(status=status_value, message=message)
+
+
+@router.get("/indexing-status", response_model=DocumentIndexingStatusResponse)
+async def get_documents_indexing_status(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentIndexingStatusResponse:
+    logger.info(
+        "Received document indexing status request.",
+        extra={"scheme": credentials.scheme},
+    )
+
+    result = await get_indexing_status(db)
+
+    logger.info(
+        "Document indexing status prepared.",
+        extra={
+            "legal_framework_status": result["legal_framework_status"],
+            "exam_guide_status": result["exam_guide_status"],
+            "secondary_track_definitions_status": result["secondary_track_definitions_status"],
+            "higher_ed_requirements_status": result["higher_ed_requirements_status"],
+            "errors_count": len(result["errors"]),
+        },
+    )
+
+    return DocumentIndexingStatusResponse(**result)
