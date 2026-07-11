@@ -44,11 +44,6 @@ _CLARIFICATION_OPTIONS = [
     "Specialized artistic tracks",
 ]
 
-_TRACK_SUMMARY = (
-    "The official secondary education guidance highlights scientific-humanistic, "
-    "professional, and specialized artistic tracks as the main pathways."
-)
-
 _OUT_OF_SCOPE_SUGGESTION = (
     "This assistant only covers Portuguese secondary education tracks. Please consult "
     "a human advisor or school guidance counselor."
@@ -115,24 +110,17 @@ def _classify_question(question: str) -> str:
     if not _contains_any(normalized, _SECONDARY_CONTEXT_TERMS):
         return "out_of_scope"
 
-    if _contains_any(normalized, _SPECIFIC_TRACK_TERMS) or _contains_any(
-        normalized,
-        {"available tracks", "what tracks", "compare", "difference", "differences", "which track"},
+    if (
+        _contains_any(normalized, _SPECIFIC_TRACK_TERMS)
+        or ("available" in normalized and "track" in normalized)
+        or _contains_any(
+            normalized,
+            {"what tracks", "compare", "difference", "differences", "which track"},
+        )
     ):
         return "clear"
 
     return "ambiguous"
-
-
-def _build_clear_answer(question: str) -> str:
-    if _contains_any(question, {"compare", "difference", "differences"}):
-        return (
-            "According to the official secondary education guidance, the main track families are "
-            "scientific-humanistic, professional, and specialized artistic. The guidance material "
-            "compares them by focus, practical training, and progression to higher education."
-        )
-
-    return f"{_TRACK_SUMMARY} Ask about one track if you want a more detailed, source-based explanation."
 
 
 def _build_clarification_options(question: str) -> list[str]:

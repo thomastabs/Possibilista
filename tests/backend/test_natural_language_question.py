@@ -19,7 +19,7 @@ def test_answer_natural_language_question_clear_question():
     assert response["clarification_needed"] is False
     assert response["out_of_scope"] is False
     assert response["clarification_options"] == []
-    assert "official secondary education guidance" in response["answer"].lower()
+    assert "according to the official documents" in response["answer"].lower()
     assert response["suggestion"] == ""
     assert response["documents"]
     assert response["no_source"] is False
@@ -106,7 +106,7 @@ def test_post_natural_language_question_endpoint_returns_clear_answer():
     assert payload["session_id"] == "session-1"
     assert payload["clarification_needed"] is False
     assert payload["out_of_scope"] is False
-    assert "official secondary education guidance" in payload["answer"].lower()
+    assert "according to the official documents" in payload["answer"].lower()
     assert payload["documents"]
     assert payload["no_source"] is False
 

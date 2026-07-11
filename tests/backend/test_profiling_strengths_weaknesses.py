@@ -47,6 +47,8 @@ class DummyDB:
             return DummyResult(self.interests)
         if getattr(entity, "__name__", "") == "StudentStrengthWeakness":
             return DummyResult(self.existing_profile)
+        if getattr(entity, "__name__", "") == "StudentMotivation":
+            return DummyResult(None)
         return DummyResult(self.tracks)
 
     def add(self, record):
