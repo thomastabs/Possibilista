@@ -312,3 +312,69 @@ def test_index_higher_ed_requirements_endpoint_requires_bearer_authentication():
     response = client.post("/api/v1/documents/index-higher-ed-requirements")
 
     assert response.status_code in (401, 403)
+
+
+def test_documents_retrieve_endpoint_returns_matching_documents(monkeypatch):
+    async def fake_retrieve(db, query, limit=3):
+        return {
+            "documents": [
+                {
+                    "title": "Professional Courses Guidance",
+                    "content": "Professional courses combine general education with technical training.",
+                    "source_url": "https://www.dge.mec.pt/cursos-profissionais",
+                }
+            ],
+            "no_source": False,
+        }
+
+    monkeypatch.setattr(documents_module, "retrieve_relevant_documents", fake_retrieve)
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/retrieve",
+        headers={"Authorization": "Bearer token"},
+        params={"query": "What are professional courses?"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["no_source"] is False
+    assert payload["documents"][0]["title"] == "Professional Courses Guidance"
+
+
+def test_documents_retrieve_endpoint_returns_no_source_when_nothing_matches(monkeypatch):
+    async def fake_retrieve(db, query, limit=3):
+        return {"documents": [], "no_source": True}
+
+    monkeypatch.setattr(documents_module, "retrieve_relevant_documents", fake_retrieve)
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/retrieve",
+        headers={"Authorization": "Bearer token"},
+        params={"query": "What is the weather tomorrow?"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["no_source"] is True
+    assert payload["documents"] == []
+
+
+def test_documents_retrieve_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.get("/api/v1/documents/retrieve", params={"query": "test"})
+
+    assert response.status_code in (401, 403)
+
+
+def test_documents_retrieve_endpoint_requires_query_param():
+    client = _make_test_client(DummyDB())
+
+    response = client.get(
+        "/api/v1/documents/retrieve",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 422

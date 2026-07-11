@@ -1,4 +1,5 @@
-"""Document indexing endpoints (Stories 9389382, 9389384, 9389386, 9389388).
+"""Document indexing and retrieval endpoints (Stories 9389382, 9389384, 9389386, 9389388,
+9389389).
 
 ``auth: role:admin`` in the technical spec is not backed by a real role/permission system in
 this repo slice (none exists yet for any endpoint) — enforced here as plain bearer-token
@@ -9,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Security
+from fastapi import APIRouter, Depends, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,7 @@ from backend.services.document_ingestion_service import (
     ingest_legal_framework_documents,
     ingest_secondary_track_definition_documents,
 )
+from backend.services.document_retrieval_service import retrieve_relevant_documents
 from backend.services.indexing_status_service import get_indexing_status
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,17 @@ HIGHER_ED_REQUIREMENTS_UNEXPECTED_FAILURE_MESSAGE = (
 class DocumentIndexingResponse(BaseModel):
     status: str
     message: str
+
+
+class DocumentRetrievalResult(BaseModel):
+    title: str
+    content: str
+    source_url: str
+
+
+class DocumentRetrievalResponse(BaseModel):
+    documents: list[DocumentRetrievalResult]
+    no_source: bool
 
 
 class DocumentIndexingStatusResponse(BaseModel):
@@ -200,6 +213,31 @@ async def post_index_higher_ed_requirements(
     )
 
     return DocumentIndexingResponse(status=status_value, message=message)
+
+
+@router.get("/retrieve", response_model=DocumentRetrievalResponse)
+async def get_documents_retrieve(
+    query: str = Query(min_length=1),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> DocumentRetrievalResponse:
+    logger.info(
+        "Received document retrieval request.",
+        extra={"query": query, "scheme": credentials.scheme},
+    )
+
+    result = await retrieve_relevant_documents(db, query)
+
+    logger.info(
+        "Document retrieval prepared.",
+        extra={
+            "query": query,
+            "documents_count": len(result["documents"]),
+            "no_source": result["no_source"],
+        },
+    )
+
+    return DocumentRetrievalResponse(**result)
 
 
 @router.get("/indexing-status", response_model=DocumentIndexingStatusResponse)
