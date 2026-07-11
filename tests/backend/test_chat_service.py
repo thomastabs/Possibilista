@@ -48,3 +48,26 @@ def test_requires_confirmation_true_when_no_grounded_answer_is_found():
     assert response["insufficient_info"] is True
     assert response["requires_confirmation"] is True
     assert "cannot answer" in response["answer"].lower()
+
+
+def test_critical_decision_withholds_definitive_answer_even_with_a_grounded_match():
+    response = build_chat_response(
+        "I want to enroll in the professional track.", "session-critical-1"
+    )
+
+    assert response["critical_decision_detected"] is True
+    assert response["facts"] == []
+    assert response["interpretations"] == []
+    assert response["documents"] == []
+    assert response["insufficient_info"] is True
+    assert response["requires_confirmation"] is True
+    assert response["confirmation_advice"]
+    assert "human" in response["confirmation_advice"].lower() or (
+        "institution" in response["confirmation_advice"].lower()
+    )
+
+
+def test_critical_decision_not_detected_for_a_plain_factual_question():
+    response = build_chat_response("What are the professional tracks?", "session-critical-2")
+
+    assert response["critical_decision_detected"] is False

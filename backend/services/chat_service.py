@@ -93,7 +93,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     )
     documents = retrieve_official_documents(normalized_message)
     is_interpretative = _contains_any(normalized_message, _INTERPRETATION_TERMS)
-    matches_critical_terms = _contains_any(normalized_message, _CRITICAL_DECISION_TERMS)
+    matches_critical_terms = detect_critical_decision(normalized_message)
 
     facts: list[str] = []
     interpretations: list[str] = []
@@ -110,7 +110,15 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
             "official sources — confirm with a school counselor before deciding."
         )
 
-    insufficient_info = not documents and not is_interpretative
+    if matches_critical_terms:
+        logger.debug(
+            "Critical decision detected; withholding definitive answer.",
+            extra={"session_id": session_id},
+        )
+        facts = []
+        interpretations = []
+
+    insufficient_info = matches_critical_terms or (not documents and not is_interpretative)
     requires_confirmation = matches_critical_terms or insufficient_info or is_interpretative
 
     if requires_confirmation:
@@ -161,6 +169,13 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         },
     )
 
+    if matches_critical_terms:
+        confirmation_advice = suggest_escalation(normalized_message)
+    elif requires_confirmation:
+        confirmation_advice = CONFIRMATION_ADVICE_MESSAGE
+    else:
+        confirmation_advice = None
+
     return {
         "answer": answer,
         "facts": facts,
@@ -169,10 +184,11 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "requires_confirmation": requires_confirmation,
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
-        "documents": [dict(document) for document in documents],
-        "confirmation_advice": CONFIRMATION_ADVICE_MESSAGE if requires_confirmation else None,
+        "documents": [] if matches_critical_terms else [dict(document) for document in documents],
+        "confirmation_advice": confirmation_advice,
         "session_id": session_id,
-        "topic_tokens": _topic_tokens(documents),
+        "topic_tokens": [] if matches_critical_terms else _topic_tokens(documents),
+        "critical_decision_detected": matches_critical_terms,
     }
 
 
@@ -244,7 +260,12 @@ def build_chat_response_with_context(
         base_response["previous_message_id"] = None
         return base_response
 
-    if base_response["insufficient_info"] and previous_message and previous_message.facts:
+    if (
+        base_response["insufficient_info"]
+        and not base_response["critical_decision_detected"]
+        and previous_message
+        and previous_message.facts
+    ):
         logger.info(
             "Reusing prior dialogue context for a follow-up question.",
             extra={"session_id": session_id},
@@ -334,6 +355,9 @@ def build_chat_response_for_message(
     ]
     insufficient_info = all(response["insufficient_info"] for response in segment_responses)
     requires_confirmation = any(response["requires_confirmation"] for response in segment_responses)
+    critical_decision_detected = any(
+        response["critical_decision_detected"] for response in segment_responses
+    )
     documents = [document for response in segment_responses for document in response["documents"]]
     topic_tokens = sorted({token for response in segment_responses for token in response["topic_tokens"]})
 
@@ -347,6 +371,13 @@ def build_chat_response_for_message(
         },
     )
 
+    if critical_decision_detected:
+        confirmation_advice = suggest_escalation(normalized_message)
+    elif requires_confirmation:
+        confirmation_advice = CONFIRMATION_ADVICE_MESSAGE
+    else:
+        confirmation_advice = None
+
     return {
         "answer": answer,
         "facts": facts,
@@ -356,9 +387,10 @@ def build_chat_response_for_message(
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
         "documents": documents,
-        "confirmation_advice": CONFIRMATION_ADVICE_MESSAGE if requires_confirmation else None,
+        "confirmation_advice": confirmation_advice,
         "session_id": session_id,
         "topic_tokens": topic_tokens,
         "context_tokens": topic_tokens,
         "previous_message_id": None,
+        "critical_decision_detected": critical_decision_detected,
     }
