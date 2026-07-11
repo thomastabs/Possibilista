@@ -1,6 +1,7 @@
-# Docker Compose configuration for Possibilista's PostgreSQL container (Story US#9402358).
-# Builds the Dockerfile at the repo root (pgvector/pgvector:pg15 base — see Dockerfile
-# comments for why the plain postgres image isn't used).
+# Docker Compose configuration for Possibilista's PostgreSQL (US#9402358) and backend
+# (US#9402359) containers. Both services share this file's default network, so the backend
+# reaches PostgreSQL at the hostname `postgres` (the service name below) rather than
+# `localhost` — no extra network config needed.
 
 services:
   postgres:
@@ -27,6 +28,29 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  backend:
+    build:
+      # Context is the repo root, not backend/, since backend/Dockerfile COPYs both
+      # backend/ and migrations/ — both live above the backend/ directory itself.
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: possibilista-backend
+    environment:
+      # Overrides Settings' localhost default (backend/config.py) to point at the postgres
+      # service by name, since the two containers don't share a network namespace.
+      # validate_required_environment_variables() exits immediately if this is unset —
+      # try `docker compose run -e DATABASE_URL= backend` to see the failure scenario.
+      DATABASE_URL: >-
+        ${DATABASE_URL:-postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista}
+    ports:
+      # Host port is overridable via BACKEND_HOST_PORT, same pattern as postgres's
+      # POSTGRES_HOST_PORT — see the README's port conflict section.
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
 
 volumes:
   pgdata:
