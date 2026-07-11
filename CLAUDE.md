@@ -10,7 +10,7 @@ source of truth** — answers are RAG-grounded, distinguish fact from interpreta
 decisions to human/institutional confirmation. Full product framing is in `README.md`.
 
 Target architecture (per `README.md` / `Apex Spec Context/tech-stack.md`): a monolithic FastAPI backend
-hosting LangChain agents (Orchestrator, Profiler, Secondary, Superior/Simulation), PostgreSQL + pgvector
+hosting LangGraph agents (Orchestrator, Profiler, Secondary, Superior/Simulation), PostgreSQL + pgvector
 for both relational data and RAG retrieval, and a Next.js/React frontend.
 
 **Current repo state is a thin implementation slice**, not the full target system — see "What's actually

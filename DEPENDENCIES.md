@@ -11,7 +11,7 @@ This document translates the stack described in `Apex Spec Context/tech-stack.md
 - SQLAlchemy 2.x
 - Alembic
 - PostgreSQL driver for async access
-- LangChain
+- LangGraph
 - Anthropic Claude SDK or API client integration
 - OpenAI SDK or API client integration
 - Google Gemini SDK or API client integration

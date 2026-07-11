@@ -1,7 +1,7 @@
 # Deterministic stubs and missing real implementations
 
 Possibilista's target architecture (`README.md`, `Apex Spec Context/tech-stack.md`) calls for
-LangChain agents doing live RAG retrieval and LLM generation over pgvector. The current repo is a
+LangGraph agents doing live RAG retrieval and LLM generation over pgvector. The current repo is a
 "thin implementation slice" (per `CLAUDE.md`): every RAG/LLM-shaped surface is instead a
 deterministic, rule-based stand-in — no live embedding calls, no live LLM calls — so tests stay
 fast and offline, consistent with this repo's testing convention (hand-rolled DB stubs, no real
@@ -9,6 +9,17 @@ Postgres connection).
 
 This file tracks every such stub: what it fakes, why, and what swapping in the real thing would
 require. Updated as new stories land; not itself a spec document (that's `Apex Spec Context/`).
+
+## Tech stack: LangChain → LangGraph (2026-07-11)
+
+User switched the locked orchestration framework from LangChain to LangGraph in
+`Apex Spec Context/tech-stack.md`, `CLAUDE.md`, and `DEPENDENCIES.md`, and swapped
+`backend/requirements.txt`'s `langchain==0.2.14` line for `langgraph==0.2.34` (the
+`langchain-anthropic`/`langchain-openai`/`langchain-google-genai` model-client packages are
+unchanged — LangGraph nodes commonly wrap these same chat model integrations). This was a
+pure documentation + dependency-pin change: `grep`ing the backend confirmed nothing anywhere
+imports `langchain` or `langgraph` — every RAG/LLM-shaped module in this repo is a stub (see
+below), so there was no real orchestration code to migrate.
 
 ## backend/services/natural_language_question.py
 
@@ -18,7 +29,7 @@ require. Updated as new stories land; not itself a spec document (that's `Apex S
 - **Real implementation would need**: an embedding model call (e.g. via the already-installed
   `langchain-openai`/`langchain-anthropic`/`langchain-google-genai`) to embed the question, a
   pgvector similarity query (`ORDER BY embedding <-> :query_embedding`) against indexed `Document`
-  rows, and a LangChain retrieval chain in place of the keyword classifier.
+  rows, and a LangGraph retrieval graph in place of the keyword classifier.
 
 ## backend/services/chat_service.py
 

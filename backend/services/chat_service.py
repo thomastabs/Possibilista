@@ -79,7 +79,7 @@ def suggest_escalation(conversation_context: str) -> str:
 def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
     """Build a structured chat answer that separates documented facts from interpretation.
 
-    Deterministic classification (no live LangChain/pgvector call in this repo slice),
+    Deterministic classification (no live LangGraph/pgvector call in this repo slice),
     mirroring the pattern in ``natural_language_question.py``: reuses the same official
     document catalog for fact-grounding, then decides whether the question calls for an
     interpretative answer or flags that information is insufficient.
