@@ -94,6 +94,17 @@ below), so there was no real orchestration code to migrate.
   admin notification) triggered when a document type's status flips to `missing`/`failed`,
   instead of relying on an admin polling the status endpoint.
 
+## backend/services/document_retrieval_service.py (added US#9389389, 2026-07-11)
+
+- **Stubbed**: Query embedding uses the same deterministic `generate_embedding` stub as
+  ingestion (character-code-derived, no live embedding API call) — so retrieval's "vector
+  similarity" is real pgvector L2-distance math (`Document.embedding.l2_distance`, the `<->`
+  operator) over genuinely fake vectors. The similarity ranking is mechanically correct but
+  not semantically meaningful the way a real embedding model's would be.
+- **Real implementation would need**: a real embedding API call (see the
+  `embedding_service.py` entry above) — once that's real, this retrieval logic needs no
+  further changes, since the pgvector query itself is already the real mechanism.
+
 ## backend/api/documents.py (added US#9389382, 2026-07-11)
 
 - **Stubbed**: `auth: role:admin` (per the amended spec) is enforced as plain bearer-token
