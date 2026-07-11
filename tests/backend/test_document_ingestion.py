@@ -6,8 +6,10 @@ from backend.services.document_ingestion_service import (
     EXAM_GUIDE_DOCUMENT_TYPE,
     EXAM_GUIDE_MISSING_MESSAGE,
     LEGAL_FRAMEWORK_DOCUMENT_TYPE,
+    SECONDARY_TRACK_DEFINITIONS_DOCUMENT_TYPE,
     ingest_exam_guide_document,
     ingest_legal_framework_documents,
+    ingest_secondary_track_definition_documents,
 )
 from backend.services.embedding_service import generate_embedding
 
@@ -16,6 +18,25 @@ EXAM_GUIDE_DOCUMENT = {
     "title": "General Exam Guide — Provas de Aferição e Exames Nacionais",
     "content": "Describes the national exam calendar and grading criteria.",
     "source_url": "https://www.dge.mec.pt/exames-nacionais",
+    "version_label": "2026-edition",
+}
+
+COMPLETE_SECONDARY_TRACK_DEFINITION = {
+    "id": "secondary-track-definitions-2026",
+    "title": "Secondary Track Definitions",
+    "content": (
+        "Defines each track's disciplines, exam requirements, discipline combinations, "
+        "and higher education impact."
+    ),
+    "source_url": "https://www.dge.mec.pt/definicoes-cursos-secundarios",
+    "version_label": "2026-edition",
+}
+
+INCOMPLETE_SECONDARY_TRACK_DEFINITION = {
+    "id": "incomplete-secondary-track-definitions",
+    "title": "Incomplete Secondary Track Definitions",
+    "content": "Defines each track's disciplines only.",
+    "source_url": "https://www.dge.mec.pt/definicoes-incompletas",
     "version_label": "2026-edition",
 }
 
@@ -287,3 +308,76 @@ def test_exam_guide_ingestion_uses_the_default_document_when_none_is_passed():
 
     assert result["indexed"] is True
     assert len(db.added) == 1
+
+
+def test_secondary_track_definitions_ingestion_indexes_complete_documents():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_secondary_track_definition_documents(db, [COMPLETE_SECONDARY_TRACK_DEFINITION])
+    )
+
+    assert result["indexed_count"] == 1
+    assert result["errors"] == []
+    assert len(db.added) == 1
+    indexed_document = db.added[0]
+    assert indexed_document.document_type == SECONDARY_TRACK_DEFINITIONS_DOCUMENT_TYPE
+    assert indexed_document.indexed is True
+    assert indexed_document.indexing_errors == []
+    assert indexed_document.embedding is not None
+
+
+def test_secondary_track_definitions_ingestion_flags_incomplete_documents_for_review():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_secondary_track_definition_documents(db, [INCOMPLETE_SECONDARY_TRACK_DEFINITION])
+    )
+
+    assert result["indexed_count"] == 0
+    assert len(result["errors"]) == 1
+    assert "incomplete-secondary-track-definitions" in result["errors"][0]
+
+
+def test_secondary_track_definitions_ingestion_persists_incomplete_documents_as_not_indexed():
+    db = DummyDB()
+
+    asyncio.run(
+        ingest_secondary_track_definition_documents(db, [INCOMPLETE_SECONDARY_TRACK_DEFINITION])
+    )
+
+    assert len(db.added) == 1
+    flagged_document = db.added[0]
+    assert flagged_document.indexed is False
+    assert flagged_document.indexing_errors
+    assert "exam requirements" in flagged_document.indexing_errors[0]
+
+
+def test_secondary_track_definitions_ingestion_excludes_documents_missing_required_fields():
+    db = DummyDB()
+    missing_fields_document = {**COMPLETE_SECONDARY_TRACK_DEFINITION, "content": ""}
+
+    result = asyncio.run(
+        ingest_secondary_track_definition_documents(db, [missing_fields_document])
+    )
+
+    assert result["indexed_count"] == 0
+    assert db.added == []
+    assert "Missing or empty required field 'content'" in result["errors"][0]
+
+
+def test_secondary_track_definitions_ingestion_handles_mixed_batch():
+    db = DummyDB()
+
+    result = asyncio.run(
+        ingest_secondary_track_definition_documents(
+            db, [COMPLETE_SECONDARY_TRACK_DEFINITION, INCOMPLETE_SECONDARY_TRACK_DEFINITION]
+        )
+    )
+
+    assert result["indexed_count"] == 1
+    assert len(result["errors"]) == 1
+    assert len(db.added) == 2
+    indexed_states = {document.source_url: document.indexed for document in db.added}
+    assert indexed_states[COMPLETE_SECONDARY_TRACK_DEFINITION["source_url"]] is True
+    assert indexed_states[INCOMPLETE_SECONDARY_TRACK_DEFINITION["source_url"]] is False
