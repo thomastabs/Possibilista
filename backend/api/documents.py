@@ -1,5 +1,5 @@
 """Document indexing and retrieval endpoints (Stories 9389382, 9389384, 9389386, 9389388,
-9389389).
+9389389, 9389391).
 
 ``auth: role:admin`` in the technical spec is not backed by a real role/permission system in
 this repo slice (none exists yet for any endpoint) — enforced here as plain bearer-token
@@ -20,9 +20,10 @@ from backend.services.document_ingestion_service import (
     ingest_higher_ed_requirements_documents,
     ingest_legal_framework_documents,
     ingest_secondary_track_definition_documents,
+    reindex_all_official_documents,
 )
 from backend.services.document_retrieval_service import retrieve_relevant_documents
-from backend.services.indexing_status_service import get_indexing_status
+from backend.services.indexing_status_service import detect_updated_documents, get_indexing_status
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,26 @@ HIGHER_ED_REQUIREMENTS_UNEXPECTED_FAILURE_MESSAGE = (
     "Unable to index higher-ed requirements documents."
 )
 
+INDEX_UPDATE_RETENTION_MESSAGE = (
+    "No new official document versions are available; the existing index was retained."
+)
+INDEX_UPDATE_SUCCESS_MESSAGE_TEMPLATE = (
+    "Index refreshed — {count} document(s) updated across all official document types."
+)
+INDEX_UPDATE_PARTIAL_MESSAGE_TEMPLATE = (
+    "Index refreshed — {indexed_count} document(s) updated; {error_count} document(s) "
+    "failed to index: {errors}"
+)
+INDEX_UPDATE_UNEXPECTED_FAILURE_MESSAGE = "Unable to update the document index."
+
 
 class DocumentIndexingResponse(BaseModel):
     status: str
+    message: str
+
+
+class IndexUpdateResponse(BaseModel):
+    updated: bool
     message: str
 
 
@@ -213,6 +231,55 @@ async def post_index_higher_ed_requirements(
     )
 
     return DocumentIndexingResponse(status=status_value, message=message)
+
+
+@router.post("/index-update", response_model=IndexUpdateResponse)
+async def post_index_update(
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
+    db: AsyncSession = Depends(get_db_session),
+) -> IndexUpdateResponse:
+    logger.info(
+        "Received index update request.",
+        extra={"scheme": credentials.scheme},
+    )
+
+    updates_available, outdated_sources = await detect_updated_documents(db)
+
+    if not updates_available:
+        logger.info("No updated document versions detected; retaining existing index.")
+        return IndexUpdateResponse(updated=False, message=INDEX_UPDATE_RETENTION_MESSAGE)
+
+    logger.info(
+        "Updated document versions detected; refreshing index.",
+        extra={"outdated_sources_count": len(outdated_sources)},
+    )
+
+    try:
+        result = await reindex_all_official_documents(db)
+    except Exception:
+        logger.exception("Index update failed unexpectedly.")
+        return IndexUpdateResponse(
+            updated=False, message=INDEX_UPDATE_UNEXPECTED_FAILURE_MESSAGE
+        )
+
+    indexed_count = result["indexed_count"]
+    errors = result["errors"]
+
+    if errors:
+        message = INDEX_UPDATE_PARTIAL_MESSAGE_TEMPLATE.format(
+            indexed_count=indexed_count,
+            error_count=len(errors),
+            errors="; ".join(errors),
+        )
+    else:
+        message = INDEX_UPDATE_SUCCESS_MESSAGE_TEMPLATE.format(count=indexed_count)
+
+    logger.info(
+        "Index update request completed.",
+        extra={"indexed_count": indexed_count, "errors_count": len(errors)},
+    )
+
+    return IndexUpdateResponse(updated=True, message=message)
 
 
 @router.get("/retrieve", response_model=DocumentRetrievalResponse)

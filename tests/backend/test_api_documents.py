@@ -378,3 +378,98 @@ def test_documents_retrieve_endpoint_requires_query_param():
     )
 
     assert response.status_code == 422
+
+
+def test_index_update_endpoint_returns_updated_true_when_updates_are_available(monkeypatch):
+    async def fake_detect(db):
+        return True, ["https://www.dge.mec.pt/exames-nacionais"]
+
+    async def fake_reindex(db):
+        return {"indexed_count": 5, "errors": []}
+
+    monkeypatch.setattr(documents_module, "detect_updated_documents", fake_detect)
+    monkeypatch.setattr(documents_module, "reindex_all_official_documents", fake_reindex)
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-update",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated"] is True
+    assert "5" in payload["message"]
+
+
+def test_index_update_endpoint_returns_updated_false_when_no_updates_available(monkeypatch):
+    async def fake_detect(db):
+        return False, []
+
+    async def fake_reindex(db):
+        raise AssertionError("reindex_all_official_documents should not be called on retention")
+
+    monkeypatch.setattr(documents_module, "detect_updated_documents", fake_detect)
+    monkeypatch.setattr(documents_module, "reindex_all_official_documents", fake_reindex)
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-update",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated"] is False
+    assert "retained" in payload["message"].lower()
+
+
+def test_index_update_endpoint_reports_partial_failure_when_some_documents_error(monkeypatch):
+    async def fake_detect(db):
+        return True, ["https://www.dge.mec.pt/exames-nacionais"]
+
+    async def fake_reindex(db):
+        return {"indexed_count": 4, "errors": ["some-doc: database persistence failed."]}
+
+    monkeypatch.setattr(documents_module, "detect_updated_documents", fake_detect)
+    monkeypatch.setattr(documents_module, "reindex_all_official_documents", fake_reindex)
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-update",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated"] is True
+    assert "some-doc" in payload["message"]
+
+
+def test_index_update_endpoint_reports_failure_on_unexpected_exception(monkeypatch):
+    async def fake_detect(db):
+        return True, ["https://www.dge.mec.pt/exames-nacionais"]
+
+    async def failing_reindex(db):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(documents_module, "detect_updated_documents", fake_detect)
+    monkeypatch.setattr(documents_module, "reindex_all_official_documents", failing_reindex)
+    client = _make_test_client(DummyDB())
+
+    response = client.post(
+        "/api/v1/documents/index-update",
+        headers={"Authorization": "Bearer token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated"] is False
+
+
+def test_index_update_endpoint_requires_bearer_authentication():
+    client = _make_test_client(DummyDB())
+
+    response = client.post("/api/v1/documents/index-update")
+
+    assert response.status_code in (401, 403)
