@@ -267,11 +267,33 @@ def test_post_chat_message_endpoint_returns_200_with_full_shape():
         "requires_confirmation",
         "is_fact",
         "is_interpretation",
+        "documents",
         "session_id",
     }
     assert payload["session_id"] == str(session_id)
     assert payload["facts"]
     assert all("https://www.dge.mec.pt/" in fact for fact in payload["facts"])
+    assert payload["documents"]
+    assert all(
+        {"title", "content", "source_url"} <= set(document) for document in payload["documents"]
+    )
+
+
+def test_post_chat_message_endpoint_returns_no_documents_when_insufficient_info():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What is the weather tomorrow?", "session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["insufficient_info"] is True
+    assert payload["documents"] == []
 
 
 def test_post_chat_message_endpoint_flags_are_false_when_not_applicable():
@@ -365,6 +387,7 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
         "requires_confirmation",
         "is_fact",
         "is_interpretation",
+        "documents",
         "session_id",
     }
     assert isinstance(payload["answer"], str) and payload["answer"]
@@ -374,6 +397,7 @@ def test_post_chat_message_endpoint_compound_question_returns_well_typed_full_sh
     assert isinstance(payload["requires_confirmation"], bool)
     assert isinstance(payload["is_fact"], bool)
     assert isinstance(payload["is_interpretation"], bool)
+    assert isinstance(payload["documents"], list)
     assert payload["session_id"] == str(session_id)
 
 

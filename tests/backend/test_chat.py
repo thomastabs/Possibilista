@@ -64,6 +64,42 @@ def test_chat_message_classification_separates_facts_and_interpretations():
     assert payload["is_interpretation"] is False
 
 
+def test_official_document_references_included_for_grounded_answers():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What are the professional tracks?", "session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["documents"]
+    for document in payload["documents"]:
+        assert set(document) == {"title", "content", "source_url"}
+
+
+def test_official_document_references_empty_for_insufficient_info():
+    session_id = uuid4()
+    session = StudentSession(id=session_id, school_year=9)
+    client = _make_test_client(DummyDB(session=session))
+
+    response = client.post(
+        "/api/v1/chat/message",
+        headers={"Authorization": "Bearer token"},
+        json={"message": "What is the weather tomorrow?", "session_id": str(session_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["insufficient_info"] is True
+    assert payload["requires_confirmation"] is True
+    assert payload["documents"] == []
+
+
 def test_chat_message_classification_flags_interpretative_answers_for_confirmation():
     session_id = uuid4()
     session = StudentSession(id=session_id, school_year=9)

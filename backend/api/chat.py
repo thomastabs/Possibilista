@@ -47,6 +47,10 @@ class ChatMessageResponse(BaseModel):
     is_interpretation: bool = Field(
         description="True when the answer includes interpretative or uncertain content.",
     )
+    documents: list[dict] = Field(
+        description="Official documents (title, content, source_url) grounding the facts in "
+        "this answer, freshly retrieved per request. Empty when the answer is not grounded.",
+    )
     session_id: str
 
 
@@ -141,6 +145,7 @@ async def post_chat_message(
             "requires_confirmation": response["requires_confirmation"],
             "is_fact": response["is_fact"],
             "is_interpretation": response["is_interpretation"],
+            "documents_count": len(response["documents"]),
         },
     )
 

@@ -147,6 +147,7 @@ def build_chat_response(message: str, session_id: str) -> dict[str, Any]:
         "requires_confirmation": requires_confirmation,
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
+        "documents": [dict(document) for document in documents],
         "session_id": session_id,
         "topic_tokens": _topic_tokens(documents),
     }
@@ -310,6 +311,7 @@ def build_chat_response_for_message(
     ]
     insufficient_info = all(response["insufficient_info"] for response in segment_responses)
     requires_confirmation = any(response["requires_confirmation"] for response in segment_responses)
+    documents = [document for response in segment_responses for document in response["documents"]]
     topic_tokens = sorted({token for response in segment_responses for token in response["topic_tokens"]})
 
     logger.info(
@@ -330,6 +332,7 @@ def build_chat_response_for_message(
         "requires_confirmation": requires_confirmation,
         "is_fact": bool(facts),
         "is_interpretation": bool(interpretations),
+        "documents": documents,
         "session_id": session_id,
         "topic_tokens": topic_tokens,
         "context_tokens": topic_tokens,
