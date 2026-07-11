@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.document import Document
+from backend.services.document_ingestion_service import get_latest_known_document_versions
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,50 @@ async def get_indexing_status(db: AsyncSession) -> dict[str, Any]:
         "higher_ed_requirements_status": statuses[HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE],
         "errors": errors,
     }
+
+
+async def detect_updated_documents(db: AsyncSession) -> tuple[bool, list[str]]:
+    """Compare stored ``Document.version_label`` per ``source_url`` against the latest known
+    versions (Story 9389391). A document type is "updated" if any of its known documents is
+    either missing entirely or stored under a different version_label than the latest known
+    one. Returns ``(updates_available, outdated_or_missing_source_urls)``; degrades to
+    ``(False, [])`` on a DB error rather than raising, so the index-update endpoint retains
+    the existing index instead of failing outright.
+    """
+
+    try:
+        result = await db.execute(select(Document))
+        documents = list(result.scalars().all())
+    except SQLAlchemyError:
+        logger.exception("Failed to load documents for version detection.")
+        return False, []
+
+    stored_versions = {document.source_url: document.version_label for document in documents}
+    latest_versions = get_latest_known_document_versions()
+
+    outdated_or_missing: list[str] = []
+    for document_type, catalog in latest_versions.items():
+        for source_url, latest_version_label in catalog.items():
+            stored_version_label = stored_versions.get(source_url)
+            if stored_version_label != latest_version_label:
+                outdated_or_missing.append(source_url)
+                logger.info(
+                    "Detected outdated or missing document version.",
+                    extra={
+                        "document_type": document_type,
+                        "source_url": source_url,
+                        "stored_version_label": stored_version_label,
+                        "latest_version_label": latest_version_label,
+                    },
+                )
+
+    updates_available = bool(outdated_or_missing)
+    logger.info(
+        "Document version detection complete.",
+        extra={
+            "updates_available": updates_available,
+            "outdated_count": len(outdated_or_missing),
+        },
+    )
+
+    return updates_available, outdated_or_missing

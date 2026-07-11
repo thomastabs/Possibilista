@@ -519,3 +519,63 @@ async def ingest_higher_ed_requirements_documents(
     )
 
     return {"indexed_count": indexed_count, "errors": errors}
+
+
+def get_latest_known_document_versions() -> dict[str, dict[str, str]]:
+    """Map each document type to its known documents' ``{source_url: version_label}``,
+    derived from the same static catalogs each ingestion pipeline above indexes from
+    (Story 9389391). Used by ``indexing_status_service.detect_updated_documents`` to decide
+    whether the stored ``Document`` rows are current."""
+
+    return {
+        LEGAL_FRAMEWORK_DOCUMENT_TYPE: {
+            document["source_url"]: document["version_label"]
+            for document in _LEGAL_FRAMEWORK_DOCUMENT_CATALOG
+        },
+        EXAM_GUIDE_DOCUMENT_TYPE: {
+            _EXAM_GUIDE_DOCUMENT["source_url"]: _EXAM_GUIDE_DOCUMENT["version_label"],
+        },
+        SECONDARY_TRACK_DEFINITIONS_DOCUMENT_TYPE: {
+            document["source_url"]: document["version_label"]
+            for document in _SECONDARY_TRACK_DEFINITIONS_CATALOG
+        },
+        HIGHER_ED_REQUIREMENTS_DOCUMENT_TYPE: {
+            document["source_url"]: document["version_label"]
+            for document in _HIGHER_ED_REQUIREMENTS_CATALOG
+        },
+    }
+
+
+async def reindex_all_official_documents(db: AsyncSession) -> dict[str, Any]:
+    """Re-run every document type's ingestion pipeline, aggregating the results (Story 9389391).
+
+    Reuses the four existing per-type ingestion functions rather than duplicating their
+    validation/embedding/persistence logic — this is the "refresh the index" step the
+    POST /api/v1/documents/index-update endpoint invokes once version detection finds
+    something outdated or missing.
+    """
+
+    legal_framework_result = await ingest_legal_framework_documents(db)
+    exam_guide_result = await ingest_exam_guide_document(db)
+    secondary_track_result = await ingest_secondary_track_definition_documents(db)
+    higher_ed_result = await ingest_higher_ed_requirements_documents(db)
+
+    indexed_count = (
+        legal_framework_result["indexed_count"]
+        + (1 if exam_guide_result["indexed"] else 0)
+        + secondary_track_result["indexed_count"]
+        + higher_ed_result["indexed_count"]
+    )
+    errors = (
+        legal_framework_result["errors"]
+        + exam_guide_result["errors"]
+        + secondary_track_result["errors"]
+        + higher_ed_result["errors"]
+    )
+
+    logger.info(
+        "Re-indexed all official document types.",
+        extra={"indexed_count": indexed_count, "errors_count": len(errors)},
+    )
+
+    return {"indexed_count": indexed_count, "errors": errors}
