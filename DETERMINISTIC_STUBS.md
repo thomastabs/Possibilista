@@ -33,9 +33,11 @@ require. Updated as new stories land; not itself a spec document (that's `Apex S
 
 - **Stubbed**: `_generate_embedding` — derives a fixed-length numeric vector deterministically from
   a document's content characters (same content always yields the same vector), instead of calling
-  a real embedding API. `_LEGAL_FRAMEWORK_DOCUMENT_CATALOG` is a small hardcoded list of raw
-  candidate documents (one deliberately malformed, to exercise the corrupted-document path) instead
-  of a real document source (file upload, admin-provided corpus, or external legal-database fetch).
+  a real embedding API. `_LEGAL_FRAMEWORK_DOCUMENT_CATALOG` is a small hardcoded list of two valid
+  raw candidate documents, standing in for a real document source (file upload, admin-provided
+  corpus, or external legal-database fetch); the "corrupted document" scenarios are exercised via
+  explicit test fixtures (a document missing required fields) rather than baked into the default
+  catalog, since the default catalog is what the index-legal-framework endpoint actually indexes.
 - **Real implementation would need**: a real embedding call (see above) writing genuine vectors
   into `Document.embedding` (already a real `pgvector.sqlalchemy.Vector` column — only the value
   generation is stubbed), a real document source (upload endpoint, filesystem watch, or external
@@ -46,3 +48,12 @@ require. Updated as new stories land; not itself a spec document (that's `Apex S
   `Apex Spec Context/technical-spec.md` — that spec maps Story 9389382 only to
   `GET /api/v1/documents/indexing-status`. User chose (2026-07-11) to amend the spec and add the
   new endpoint rather than build toward the existing `indexing-status` contract instead.
+
+## backend/api/documents.py (added US#9389382, 2026-07-11)
+
+- **Stubbed**: `auth: role:admin` (per the amended spec) is enforced as plain bearer-token
+  presence — same as every other endpoint in this repo slice. No role/permission system exists
+  anywhere yet to distinguish an admin token from a student-session token.
+- **Real implementation would need**: an actual role/claims model on the bearer token (or a
+  separate admin auth scheme) and a dependency that rejects non-admin callers, rather than
+  `HTTPBearer(auto_error=True)` alone.
