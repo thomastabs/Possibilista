@@ -98,7 +98,11 @@ The backend expects PostgreSQL (with the pgvector extension) reachable at the co
 string in `backend/config.py`'s `database_url` default
 (`postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`). A
 `Dockerfile` and `docker-compose.yml` at the repo root run it in a container with matching
-default credentials.
+default credentials: `docker-compose.yml`'s `postgres` service sets `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, and `POSTGRES_DB` to `possibilista`, `possibilista`, and `possibilista`
+respectively — the same values baked into `backend/config.py`'s `database_url` default above,
+so the backend can connect out of the box with no extra configuration. Override any of the
+three via the shell environment or a `.env` file if you need different credentials.
 
 Start it with the port-availability check script rather than calling Docker Compose
 directly, so a port conflict fails fast with a clear message instead of a cryptic Docker
@@ -111,6 +115,27 @@ error:
 This builds the image (based on `pgvector/pgvector:pg15`, not the plain `postgres` image,
 so `CREATE EXTENSION vector` in the Alembic migrations succeeds) and runs
 `docker compose up` (or `docker-compose up` if you only have the legacy binary installed).
+
+### PostgreSQL Health Check
+
+`docker-compose.yml`'s `postgres` service defines a healthcheck that runs `pg_isready` every 5
+seconds (5 retries) — this is what the `backend` service's `depends_on: condition:
+service_healthy` waits on before starting, so the backend never starts against a database
+that isn't accepting connections yet.
+
+To check the container's status and health yourself:
+
+```bash
+docker ps
+```
+
+Look for the `possibilista-postgres` container's `STATUS` column — it should read
+`Up ... (healthy)` once `pg_isready` starts succeeding (typically within a few seconds of
+startup). If it stays `(health: starting)` or flips to `(unhealthy)`, inspect the logs:
+
+```bash
+docker logs possibilista-postgres
+```
 
 ### PostgreSQL Port Conflict Resolution
 
