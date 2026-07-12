@@ -68,175 +68,163 @@ school/family platform tier — those are later phases.
 - Secondary-track definitions (disciplines: trienais, bienais, anuais).
 - Higher-education courses (entrance exams and compatibilities).
 
-## Prerequisites
+## Local Container Environment
 
-**Docker must be installed and running before you attempt any of the local development steps
-below.** Every section that follows — running PostgreSQL, running the backend, and verifying
-the environment — assumes a working `docker` and `docker compose` on your machine. Skipping
-this will make every later step fail.
+The local Docker setup has one canonical entry point: `docker-compose.yml`. It defines the
+three development containers together:
 
-- Install Docker for your platform: [Windows](https://docs.docker.com/desktop/install/windows-install/),
-  [macOS](https://docs.docker.com/desktop/install/mac-install/), or
-  [Linux](https://docs.docker.com/engine/install/) (Linux uses distribution-specific packages —
-  see the linked guide for your distro).
-- Verify the install before continuing:
-  ```bash
-  docker --version
-  docker compose version
-  ```
-  Both must print a version. If either fails, see
-  [`docs/local-development.md`](docs/local-development.md) for detailed install steps and
-  troubleshooting (BIOS virtualization, WSL 2, Linux `docker` group permissions, restart
-  requirements).
+- `postgres` — PostgreSQL 15 with pgvector, exposed on `localhost:5432` by default.
+- `backend` — FastAPI served by Uvicorn, exposed on `localhost:8000` by default.
+- `frontend` — Next.js production server, exposed on `localhost:3000` by default once the
+  frontend package contains a buildable Next.js `app/` or `pages/` tree.
 
-## Running PostgreSQL Locally (Docker)
+`docs/local-development.md` covers Docker installation and host-specific troubleshooting.
+This section covers the project-specific environment.
 
-> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
-> above before continuing.
+### Prerequisites
 
-The backend expects PostgreSQL (with the pgvector extension) reachable at the connection
-string in `backend/config.py`'s `database_url` default
-(`postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`). A
-`Dockerfile` and `docker-compose.yml` at the repo root run it in a container with matching
-default credentials: `docker-compose.yml`'s `postgres` service sets `POSTGRES_USER`,
-`POSTGRES_PASSWORD`, and `POSTGRES_DB` to `possibilista`, `possibilista`, and `possibilista`
-respectively — the same values baked into `backend/config.py`'s `database_url` default above,
-so the backend can connect out of the box with no extra configuration. Override any of the
-three via the shell environment or a `.env` file if you need different credentials.
+Docker must be installed and running before any container command will work:
 
-Start it with the port-availability check script rather than calling Docker Compose
-directly, so a port conflict fails fast with a clear message instead of a cryptic Docker
-error:
+```bash
+docker --version
+docker compose version
+```
+
+Both commands must print a version. If either fails, install Docker from the official docs
+for [Windows](https://docs.docker.com/desktop/install/windows-install/),
+[macOS](https://docs.docker.com/desktop/install/mac-install/), or
+[Linux](https://docs.docker.com/engine/install/), then revisit
+[`docs/local-development.md`](docs/local-development.md).
+
+### Environment Variables
+
+The defaults are suitable for local development. Copy `.env.example` only if you want to
+override ports, credentials, or URLs:
+
+```bash
+cp .env.example .env
+```
+
+Important variables:
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `POSTGRES_USER` | `possibilista` | Postgres container |
+| `POSTGRES_PASSWORD` | `possibilista` | Postgres container |
+| `POSTGRES_DB` | `possibilista` | Postgres container |
+| `POSTGRES_HOST_PORT` | `5432` | Host-to-Postgres port mapping |
+| `BACKEND_HOST_PORT` | `8000` | Host-to-backend port mapping |
+| `FRONTEND_HOST_PORT` | `3000` | Host-to-frontend port mapping |
+| `DATABASE_URL` | `postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista` | Backend container |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Frontend container |
+
+Inside Compose, `DATABASE_URL` must use the service hostname `postgres`, not `localhost`.
+For running backend code directly on the host, use the localhost form instead:
+`postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`.
+
+### Current Frontend Build Caveat
+
+The container environment is wired for a frontend service, but this checkout is still a thin
+slice: the React components currently live in top-level `src/components`, while the
+`frontend/` package does not yet contain a Next.js `app/` or `pages/` directory. Until that
+app tree exists, `npm run build`, `./build_frontend_docker.sh`, and the `frontend` Compose
+service will fail with Next.js' "Couldn't find any `pages` or `app` directory" error.
+
+You can still run Postgres and the backend together:
+
+```bash
+docker compose up --build postgres backend
+```
+
+### Start Everything
+
+From the repository root:
+
+```bash
+docker compose up --build
+```
+
+This builds and starts Postgres, the backend, and the frontend on one Compose network. The
+backend waits for Postgres to pass its `pg_isready` healthcheck before starting. The frontend
+service additionally requires a buildable Next.js app tree in `frontend/`.
+
+To run in the background:
+
+```bash
+docker compose up --build --detach
+```
+
+To stop the stack:
+
+```bash
+docker compose down
+```
+
+To stop the stack and delete the persisted local Postgres data volume:
+
+```bash
+docker compose down --volumes
+```
+
+### Focused Container Commands
+
+Use these when you only need one piece of the stack:
 
 ```bash
 ./start_postgres.sh
 ```
 
-This builds the image (based on `pgvector/pgvector:pg15`, not the plain `postgres` image,
-so `CREATE EXTENSION vector` in the Alembic migrations succeeds) and runs
-`docker compose up` (or `docker-compose up` if you only have the legacy binary installed).
+Starts the Postgres service with an early host-port conflict check.
 
-### PostgreSQL Health Check
+```bash
+./build_frontend_docker.sh
+```
 
-`docker-compose.yml`'s `postgres` service defines a healthcheck that runs `pg_isready` every 5
-seconds (5 retries) — this is what the `backend` service's `depends_on: condition:
-service_healthy` waits on before starting, so the backend never starts against a database
-that isn't accepting connections yet.
+Builds the frontend image as `possibilista-frontend:latest` and checks that
+`frontend/Dockerfile` exists before invoking Docker.
 
-To check the container's status and health yourself:
+### Verify the Stack
+
+Once `docker compose up --build` is running:
 
 ```bash
 docker ps
+curl http://localhost:8000/health
+curl -I http://localhost:3000
 ```
 
-Look for the `possibilista-postgres` container's `STATUS` column — it should read
-`Up ... (healthy)` once `pg_isready` starts succeeding (typically within a few seconds of
-startup). If it stays `(health: starting)` or flips to `(unhealthy)`, inspect the logs:
+Expected results:
+
+- `possibilista-postgres` is `Up ... (healthy)`.
+- `possibilista-backend` is `Up`.
+- `possibilista-frontend` is `Up` when the frontend package is buildable.
+- `curl http://localhost:8000/health` returns `{"status":"ok"}`.
+- `curl -I http://localhost:3000` returns an HTTP response from Next.js.
+
+### Ports and Conflicts
+
+Override host ports without editing Compose:
+
+```bash
+POSTGRES_HOST_PORT=5433 BACKEND_HOST_PORT=8001 FRONTEND_HOST_PORT=3001 docker compose up --build
+```
+
+If you change `POSTGRES_HOST_PORT` while running backend code directly on the host, update
+the host-side `DATABASE_URL` to use the same port.
+
+### Logs and Troubleshooting
 
 ```bash
 docker logs possibilista-postgres
+docker logs possibilista-backend
+docker logs possibilista-frontend
 ```
 
-### PostgreSQL Port Conflict Resolution
-
-If port 5432 is already in use on your machine — another Postgres instance, a different
-project's container, etc. — `start_postgres.sh` detects it before Docker even tries to bind
-the port, and exits with a message telling you to either free the port or use a different
-one. To use a different host port, set `POSTGRES_HOST_PORT` when starting:
-
-```bash
-POSTGRES_HOST_PORT=5433 ./start_postgres.sh
-```
-
-Or, if you're calling `docker compose` directly instead of the script:
-
-```bash
-POSTGRES_HOST_PORT=5433 docker compose up
-```
-
-Either form maps the container's internal port 5432 to `5433` on the host instead of the
-default — `docker-compose.yml`'s `ports:` mapping already reads this variable, so no file
-edits are needed. If you change the host port, update `backend/config.py`'s `database_url`
-(or your `.env` override) to match, e.g. `...@localhost:5433/possibilista`.
-
-## Running Backend Locally (Docker)
-
-> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
-> above before continuing.
-
-`backend/Dockerfile` builds the FastAPI backend image. `docker-compose.yml`'s `backend`
-service builds it and starts it alongside `postgres`:
-
-```bash
-docker compose up
-```
-
-This starts both containers together; the `backend` service's `depends_on: postgres:
-condition: service_healthy` means it won't start until the `postgres` container's
-`pg_isready` healthcheck passes (see the PostgreSQL Health Check section above), so the
-backend never comes up racing an unready database. `docker-compose.yml` also sets
-`restart: on-failure` on the backend container, so a transient startup failure (e.g. the
-database briefly unreachable) is retried automatically rather than leaving the container
-dead.
-
-### Backend Environment Variables
-
-The `backend` service overrides `DATABASE_URL` to point at the `postgres` container by
-hostname (`postgres`, the Compose service name) instead of `localhost`, since the two
-containers don't share a network namespace:
-
-```
-DATABASE_URL=postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista
-```
-
-Override it via the shell environment or a `.env` file if you need different credentials or
-a different database host. `backend/config.py`'s `validate_required_environment_variables()`
-exits immediately at startup if `DATABASE_URL` is unset — this is deliberate, so a
-misconfigured backend fails fast with a clear log message instead of serving requests that
-would all fail anyway.
-
-### Backend Port Mapping
-
-The backend container exposes port 8000 and maps it to host port 8000 by default — once
-running, the FastAPI app is reachable at `http://localhost:8000`. Override the host port
-with `BACKEND_HOST_PORT`, the same pattern as `POSTGRES_HOST_PORT` above:
-
-```bash
-BACKEND_HOST_PORT=8001 docker compose up
-```
-
-## Verifying the Local Environment
-
-> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
-> above before continuing.
-
-Once both containers are started (`docker compose up`), confirm everything is working:
-
-1. **Check container status** — both containers should be `Up`, and `possibilista-postgres`
-   should show `(healthy)`:
-   ```bash
-   docker ps
-   ```
-2. **Check the backend is responding** — hit its health endpoint:
-   ```bash
-   curl http://localhost:8000/health
-   ```
-   This should return `{"status":"ok"}`. (Note: the route is `/health`, not `/api/health`.)
-3. **Check logs for errors** if either container isn't behaving as expected:
-   ```bash
-   docker logs possibilista-backend
-   docker logs possibilista-postgres
-   ```
-
-### Troubleshooting
-
-- **Port conflicts** — see [PostgreSQL Port Conflict Resolution](#postgresql-port-conflict-resolution)
-  above for `POSTGRES_HOST_PORT`, and [Backend Port Mapping](#backend-port-mapping) above for
-  `BACKEND_HOST_PORT`.
-- **Backend container exits immediately** — check `docker logs possibilista-backend` for a
-  `validate_required_environment_variables()` error; this means `DATABASE_URL` wasn't set
-  where the backend container expected it.
-- **Backend can't connect to the database** — confirm `possibilista-postgres` is `(healthy)`
-  via `docker ps` before assuming the backend is at fault; the backend won't even start until
-  that healthcheck passes, but a database that becomes unhealthy later (e.g. crashed) will
-  surface as connection errors in the backend's logs.
+- If Postgres is unhealthy, inspect `possibilista-postgres` logs first.
+- If the backend exits immediately, check for a missing or empty `DATABASE_URL`.
+- If the frontend image build fails because `frontend/Dockerfile` is missing or misnamed,
+  use `./build_frontend_docker.sh` for the clearer preflight error.
+- If the frontend image build fails with "Couldn't find any `pages` or `app` directory",
+  add the Next.js app tree under `frontend/` before running the frontend container.
+- If Docker reports that it cannot connect to the daemon, start Docker Desktop or the Docker
+  service before rerunning Compose.

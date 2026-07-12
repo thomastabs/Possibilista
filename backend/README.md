@@ -1,83 +1,44 @@
-# Backend
+# Possibilista Backend
 
-This repository slice contains the backend implementation work completed in this session for Possibilista.
+This directory contains the FastAPI backend package, SQLAlchemy models, services, and
+container definition for Possibilista.
 
-## What exists now
+## Local container setup
 
-### API
+Use the root `docker-compose.yml` as the canonical local environment:
 
-- `backend/api/profiling.py`
-  - `POST /api/v1/profiling/interests`
-  - Accepts `interests: list[str]` and `skipped: bool`
-  - Enforces bearer auth
-  - Enforces the `9.º ano` access rule
-  - Persists interest selections or skip markers
-  - Returns JSON with `status` and `message`
+```bash
+docker compose up --build
+```
 
-### Models
+That command starts:
 
-- `backend/models/base.py`
-  - Shared SQLAlchemy declarative base with naming conventions
-- `backend/models/student_session.py`
-  - `StudentSession`
-  - `id`
-  - `school_year`
-  - Relationships:
-    - `student_interests`
-    - `student_strength_weaknesses`
-- `backend/models/student_interest.py`
-  - `StudentInterest`
-  - `id`
-  - `session_id`
-  - `interest`
-  - `skipped`
-  - Relationship back to `StudentSession`
-- `backend/models/student_strength_weakness.py`
-  - `StudentStrengthWeakness`
-  - `id`
-  - `session_id`
-  - `strengths` as `text[]`
-  - `weaknesses` as `text[]`
-  - `partial`
-  - Relationship back to `StudentSession`
+- PostgreSQL with pgvector from the root `Dockerfile`
+- the FastAPI backend from `backend/Dockerfile`
+- the Next.js frontend from `frontend/Dockerfile`
 
-### Migrations
+The backend listens on `http://localhost:8000` by default. Verify it with:
 
-- `migrations/versions/20260705_01_create_student_interest_table.py`
-  - Creates `student_interest`
-  - Adds FK to `student_session`
-  - Adds `session_id` index
-  - Adds a check constraint so skipped rows can exist without interest text
-- `migrations/versions/20260705_02_create_student_strength_weakness_table.py`
-  - Creates `student_strength_weakness`
-  - Uses PostgreSQL text arrays for strengths and weaknesses
-  - Adds FK to `student_session`
-  - Adds `session_id` index
+```bash
+curl http://localhost:8000/health
+```
 
-### Tests
+See the root `README.md` for the full environment variable table, port overrides, and
+troubleshooting notes.
 
-- `tests/backend/test_student_interest.py`
-  - Verifies the `StudentInterest` table shape and FK relation
-- `tests/backend/test_profiling_interests.py`
-  - Verifies payload parsing
-  - Verifies 9.º ano gating
-  - Verifies interest persistence and skip persistence
-- `tests/backend/test_student_strength_weakness.py`
-  - Verifies the `StudentStrengthWeakness` table shape, array types, and FK relation
+## Backend-only notes
 
-## Session summary
+- `DATABASE_URL` is required at container startup.
+- In Docker Compose, use the `postgres` service hostname:
+  `postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista`.
+- When running backend code directly on the host, use `localhost` instead:
+  `postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`.
+- The current implementation uses deterministic RAG/LLM stubs; see `DETERMINISTIC_STUBS.md`
+  before assuming live LangGraph, embedding, or LLM calls.
 
-Implemented during this session:
+## Useful commands
 
-1. Student interest persistence model and migration
-2. `POST /api/v1/profiling/interests`
-3. Interest preferences React screen and tests
-4. Student academic strengths/weaknesses model and migration
-5. This backend README
-
-## Notes
-
-- The current checkout is intentionally thin and does not include the full production backend tree described in `apex.md`.
-- The code added here is aligned to the Apex spec context available in `Apex Spec Context/`.
-- Python dependency installation is not available in this environment, so runtime test execution was limited to syntax compilation checks.
-
+```bash
+PYTHONPATH=. pytest tests/backend
+ruff check backend
+```

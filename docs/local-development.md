@@ -1,9 +1,11 @@
 # Local Development Environment Setup
 
-Possibilista's PostgreSQL and backend services run as Docker containers (see the root
-`Dockerfile`, `backend/Dockerfile`, and `docker-compose.yml`). **Docker must be installed and
-running before you follow any of the container setup steps in the main `README.md`** —
-without it, `./start_postgres.sh` and `docker compose up` will fail immediately.
+Possibilista's local development stack runs as Docker containers: PostgreSQL with pgvector,
+the FastAPI backend, and the Next.js frontend. See the root `Dockerfile`,
+`backend/Dockerfile`, `frontend/Dockerfile`, and `docker-compose.yml`. **Docker must be
+installed and running before you follow any of the container setup steps in the main
+`README.md`** — without it, `docker compose up`, `./start_postgres.sh`, and
+`./build_frontend_docker.sh` will fail immediately.
 
 ## Installing Docker
 
@@ -49,4 +51,4 @@ or isn't on your `PATH` — revisit the install guide above for your OS.
 ## Next steps
 
 Once `docker --version` and `docker compose version` both succeed, continue with the
-"Running PostgreSQL Locally (Docker)" section in the repo root `README.md`.
+"Local Container Environment" section in the repo root `README.md`.

@@ -1,7 +1,6 @@
-# Docker Compose configuration for Possibilista's PostgreSQL (US#9402358) and backend
-# (US#9402359) containers. Both services share this file's default network, so the backend
-# reaches PostgreSQL at the hostname `postgres` (the service name below) rather than
-# `localhost` — no extra network config needed.
+# Docker Compose configuration for Possibilista's local container stack:
+# PostgreSQL + pgvector, FastAPI backend, and Next.js frontend. Services share
+# Compose's default network, so containers reach each other by service name.
 
 services:
   postgres:
@@ -50,6 +49,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: on-failure
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: possibilista-frontend
+    environment:
+      # Kept for future frontend API-client wiring. The current components mostly call
+      # relative /api/v1 paths, but this gives the container stack one explicit backend
+      # origin for code that needs an absolute URL.
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${BACKEND_HOST_PORT:-8000}}
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      - backend
     restart: on-failure
 
 volumes:

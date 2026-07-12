@@ -22,6 +22,7 @@ RUN npm ci --omit=dev
 
 COPY --from=build /app/.next ./.next
 
+# Next.js production server listens on port 3000 by default.
 EXPOSE 3000
 
 CMD ["npm", "run", "start"]
