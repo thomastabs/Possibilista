@@ -70,6 +70,10 @@ school/family platform tier — those are later phases.
 
 ## Running PostgreSQL Locally (Docker)
 
+> **Prerequisite:** Docker must be installed and running before following the steps below —
+> see [`docs/local-development.md`](docs/local-development.md) for platform-specific
+> installation instructions and troubleshooting.
+
 The backend expects PostgreSQL (with the pgvector extension) reachable at the connection
 string in `backend/config.py`'s `database_url` default
 (`postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`). A
