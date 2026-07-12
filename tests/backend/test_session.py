@@ -69,6 +69,21 @@ def _make_test_client(db: DummyDB) -> TestClient:
     return TestClient(app)
 
 
+def test_create_session_persists_session_and_returns_bearer_token():
+    db = DummyDB()
+    client = _make_test_client(db)
+
+    response = client.post("/api/v1/session")
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["token_type"] == "bearer"
+    assert payload["bearer_token"] == payload["session_id"]
+    assert len(db.added) == 1
+    assert str(db.added[0].id) == payload["session_id"]
+    assert db.committed is True
+
+
 def test_post_session_age_stores_valid_age_and_returns_valid_true():
     session_id = uuid4()
     session = StudentSession(id=session_id)

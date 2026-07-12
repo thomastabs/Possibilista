@@ -57,9 +57,11 @@ services:
       dockerfile: Dockerfile
     container_name: possibilista-frontend
     environment:
-      # Kept for future frontend API-client wiring. The current components mostly call
-      # relative /api/v1 paths, but this gives the container stack one explicit backend
-      # origin for code that needs an absolute URL.
+      # Browser requests to /api/v1 are handled by Next.js rewrites in frontend/next.config.ts.
+      # Inside Compose, the Next.js server must target the backend service name rather than
+      # localhost, which would point back at the frontend container.
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+      # Kept for browser-side API-client code that may need an absolute backend origin.
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${BACKEND_HOST_PORT:-8000}}
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"

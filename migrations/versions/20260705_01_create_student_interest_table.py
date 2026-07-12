@@ -20,6 +20,12 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
+        "student_session",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column("school_year", sa.Integer(), nullable=True),
+    )
+
+    op.create_table(
         "student_interest",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column(
@@ -45,4 +51,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_student_interest_session_id", table_name="student_interest")
     op.drop_table("student_interest")
-
+    op.drop_table("student_session")

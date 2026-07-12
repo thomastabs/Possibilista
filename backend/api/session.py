@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.chat import resolve_student_session
 from backend.api.profiling import get_db_session
 from backend.models.session_secondary_track_memory import SessionSecondaryTrackMemory
+from backend.models.student_session import StudentSession
 from backend.services.session_service import (
     clear_student_session_data,
     record_student_interests,
@@ -25,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/session", tags=["session"])
 bearer_scheme = HTTPBearer(auto_error=True)
+
+
+class SessionCreateResponse(BaseModel):
+    session_id: str
+    bearer_token: str
+    token_type: str = "bearer"
 
 
 class SessionNameRequest(BaseModel):
@@ -87,6 +95,32 @@ class SecondaryTrackMemoryResponse(BaseModel):
     track_explored: bool
     stored_track_id: str | None
     message: str
+
+
+@router.post("", response_model=SessionCreateResponse, status_code=status.HTTP_201_CREATED)
+async def create_session(
+    db: AsyncSession = Depends(get_db_session),
+) -> SessionCreateResponse:
+    session_id = uuid4()
+    student_session = StudentSession(id=session_id)
+
+    try:
+        db.add(student_session)
+        await db.commit()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Failed to create student session.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create a student session.",
+        ) from exc
+
+    logger.info("Created student session.", extra={"session_id": str(session_id)})
+
+    return SessionCreateResponse(
+        session_id=str(session_id),
+        bearer_token=str(session_id),
+    )
 
 
 @router.post("/name", response_model=SessionNameResponse)

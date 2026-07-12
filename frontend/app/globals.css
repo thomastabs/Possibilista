@@ -1,0 +1,157 @@
+:root {
+  color-scheme: light;
+  background: #f6f7f9;
+  color: #17202a;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #f6f7f9;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+a {
+  color: #175cd3;
+}
+
+.prototype-shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 48px;
+}
+
+.prototype-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 24px;
+  align-items: end;
+  padding: 28px 0;
+  border-bottom: 1px solid #d9dee7;
+}
+
+.prototype-kicker {
+  margin: 0 0 8px;
+  color: #0f6b57;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.prototype-hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+}
+
+.prototype-hero p {
+  max-width: 760px;
+  margin: 16px 0 0;
+  color: #475467;
+}
+
+.session-control {
+  display: grid;
+  gap: 8px;
+}
+
+.session-control span {
+  font-weight: 700;
+}
+
+.session-control input,
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid #c9d3df;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #17202a;
+}
+
+.prototype-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding-top: 24px;
+}
+
+.prototype-grid > section {
+  min-width: 0;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  padding: 20px;
+  background: #fff;
+}
+
+.prototype-grid h1 {
+  margin-top: 0;
+  font-size: 1.35rem;
+}
+
+.prototype-grid h2 {
+  font-size: 1.1rem;
+}
+
+.prototype-grid form,
+.prototype-grid article,
+.chat-screen__history,
+.chat-screen__turn,
+.chat-screen__answer {
+  display: grid;
+  gap: 12px;
+}
+
+.prototype-grid button {
+  border: 1px solid #0f6b57;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #0f6b57;
+  color: #fff;
+  font-weight: 700;
+}
+
+.prototype-grid button[type="button"] {
+  background: #fff;
+  color: #0f6b57;
+}
+
+.chat-screen__history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-screen__turn {
+  border-top: 1px solid #e4e8ef;
+  padding-top: 12px;
+}
+
+@media (max-width: 800px) {
+  .prototype-hero,
+  .prototype-grid {
+    grid-template-columns: 1fr;
+  }
+}

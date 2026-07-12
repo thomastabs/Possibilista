@@ -1,7 +1,10 @@
 /Apex Spec Context
 /Developer Packs
+node_modules
 node_modules/
 .vite/
+.next/
+frontend/.next/
 .venv/
 __pycache__/
 *.pyc
