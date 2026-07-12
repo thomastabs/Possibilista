@@ -158,3 +158,49 @@ Either form maps the container's internal port 5432 to `5433` on the host instea
 default — `docker-compose.yml`'s `ports:` mapping already reads this variable, so no file
 edits are needed. If you change the host port, update `backend/config.py`'s `database_url`
 (or your `.env` override) to match, e.g. `...@localhost:5433/possibilista`.
+
+## Running Backend Locally (Docker)
+
+> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
+> above before continuing.
+
+`backend/Dockerfile` builds the FastAPI backend image. `docker-compose.yml`'s `backend`
+service builds it and starts it alongside `postgres`:
+
+```bash
+docker compose up
+```
+
+This starts both containers together; the `backend` service's `depends_on: postgres:
+condition: service_healthy` means it won't start until the `postgres` container's
+`pg_isready` healthcheck passes (see the PostgreSQL Health Check section above), so the
+backend never comes up racing an unready database. `docker-compose.yml` also sets
+`restart: on-failure` on the backend container, so a transient startup failure (e.g. the
+database briefly unreachable) is retried automatically rather than leaving the container
+dead.
+
+### Backend Environment Variables
+
+The `backend` service overrides `DATABASE_URL` to point at the `postgres` container by
+hostname (`postgres`, the Compose service name) instead of `localhost`, since the two
+containers don't share a network namespace:
+
+```
+DATABASE_URL=postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista
+```
+
+Override it via the shell environment or a `.env` file if you need different credentials or
+a different database host. `backend/config.py`'s `validate_required_environment_variables()`
+exits immediately at startup if `DATABASE_URL` is unset — this is deliberate, so a
+misconfigured backend fails fast with a clear log message instead of serving requests that
+would all fail anyway.
+
+### Backend Port Mapping
+
+The backend container exposes port 8000 and maps it to host port 8000 by default — once
+running, the FastAPI app is reachable at `http://localhost:8000`. Override the host port
+with `BACKEND_HOST_PORT`, the same pattern as `POSTGRES_HOST_PORT` above:
+
+```bash
+BACKEND_HOST_PORT=8001 docker compose up
+```
