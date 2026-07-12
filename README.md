@@ -68,11 +68,31 @@ school/family platform tier — those are later phases.
 - Secondary-track definitions (disciplines: trienais, bienais, anuais).
 - Higher-education courses (entrance exams and compatibilities).
 
+## Prerequisites
+
+**Docker must be installed and running before you attempt any of the local development steps
+below.** Every section that follows — running PostgreSQL, running the backend, and verifying
+the environment — assumes a working `docker` and `docker compose` on your machine. Skipping
+this will make every later step fail.
+
+- Install Docker for your platform: [Windows](https://docs.docker.com/desktop/install/windows-install/),
+  [macOS](https://docs.docker.com/desktop/install/mac-install/), or
+  [Linux](https://docs.docker.com/engine/install/) (Linux uses distribution-specific packages —
+  see the linked guide for your distro).
+- Verify the install before continuing:
+  ```bash
+  docker --version
+  docker compose version
+  ```
+  Both must print a version. If either fails, see
+  [`docs/local-development.md`](docs/local-development.md) for detailed install steps and
+  troubleshooting (BIOS virtualization, WSL 2, Linux `docker` group permissions, restart
+  requirements).
+
 ## Running PostgreSQL Locally (Docker)
 
-> **Prerequisite:** Docker must be installed and running before following the steps below —
-> see [`docs/local-development.md`](docs/local-development.md) for platform-specific
-> installation instructions and troubleshooting.
+> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
+> above before continuing.
 
 The backend expects PostgreSQL (with the pgvector extension) reachable at the connection
 string in `backend/config.py`'s `database_url` default
