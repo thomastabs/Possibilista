@@ -12,8 +12,9 @@ DOCKERFILE_PATH="${FRONTEND_DIR}/Dockerfile"
 IMAGE_TAG="possibilista-frontend:latest"
 
 if [[ ! -f "${DOCKERFILE_PATH}" ]]; then
-  echo "Error: frontend Dockerfile is missing or misnamed." >&2
+  echo "Error: frontend Dockerfile is missing or misnamed; build aborted." >&2
   echo "Expected file: ${DOCKERFILE_PATH}" >&2
+  echo "Ensure the file is named Dockerfile and placed directly inside the frontend directory." >&2
   exit 1
 fi
 
