@@ -2,6 +2,8 @@
 FROM node:20-alpine AS build
 
 WORKDIR /app
+ARG BACKEND_INTERNAL_URL=http://backend:8000
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
 
 # Copy dependency manifests first so Docker can reuse the install layer.
 COPY package.json package-lock.json ./

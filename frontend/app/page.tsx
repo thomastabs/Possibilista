@@ -45,8 +45,8 @@ export default function PrototypeHomePage() {
           <p className="prototype-kicker">Possibilista</p>
           <h1 id="prototype-title">Guidance prototype workspace</h1>
           <p>
-            Use an existing session UUID to exercise the deterministic guidance flow while the
-            backend session bootstrap endpoint is being added.
+            Start a prototype session or paste an existing session UUID to exercise the
+            deterministic guidance flow.
           </p>
         </div>
 

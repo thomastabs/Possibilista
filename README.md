@@ -70,13 +70,11 @@ school/family platform tier — those are later phases.
 
 ## Local Container Environment
 
-The local Docker setup has one canonical entry point: `docker-compose.yml`. It defines the
-three development containers together:
+The local Docker setup has one canonical entry point: `docker-compose.yml`. It defines the three development containers together:
 
 - `postgres` — PostgreSQL 15 with pgvector, exposed on `localhost:5432` by default.
 - `backend` — FastAPI served by Uvicorn, exposed on `localhost:8000` by default.
-- `frontend` — Next.js production server, exposed on `localhost:3000` by default once the
-  frontend package contains a buildable Next.js `app/` or `pages/` tree.
+- `frontend` — Next.js production server, exposed on `localhost:3000` by default.
 
 `docs/local-development.md` covers Docker installation and host-specific troubleshooting.
 This section covers the project-specific environment.
@@ -117,24 +115,23 @@ Important variables:
 | `FRONTEND_HOST_PORT` | `3000` | Host-to-frontend port mapping |
 | `DATABASE_URL` | `postgresql+psycopg://possibilista:possibilista@postgres:5432/possibilista` | Backend container |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Frontend container |
+| `BACKEND_INTERNAL_URL` | `http://backend:8000` | Frontend build/runtime API proxy |
 
 Inside Compose, `DATABASE_URL` must use the service hostname `postgres`, not `localhost`.
 For running backend code directly on the host, use the localhost form instead:
 `postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista`.
 
-### Current Frontend Build Caveat
+### Database Migrations
 
-The container environment is wired for a frontend service, but this checkout is still a thin
-slice: the React components currently live in top-level `src/components`, while the
-`frontend/` package does not yet contain a Next.js `app/` or `pages/` directory. Until that
-app tree exists, `npm run build`, `./build_frontend_docker.sh`, and the `frontend` Compose
-service will fail with Next.js' "Couldn't find any `pages` or `app` directory" error.
-
-You can still run Postgres and the backend together:
+The backend does not run migrations automatically on startup. After Postgres is healthy,
+apply the schema before using API endpoints that write to the database:
 
 ```bash
-docker compose up --build postgres backend
+DATABASE_URL=postgresql+psycopg://possibilista:possibilista@localhost:5432/possibilista \
+  PYTHONPATH=. .venv/bin/alembic upgrade head
 ```
+
+If you override `POSTGRES_HOST_PORT`, use that host port in the migration `DATABASE_URL`.
 
 ### Start Everything
 
@@ -197,7 +194,7 @@ Expected results:
 
 - `possibilista-postgres` is `Up ... (healthy)`.
 - `possibilista-backend` is `Up`.
-- `possibilista-frontend` is `Up` when the frontend package is buildable.
+- `possibilista-frontend` is `Up`.
 - `curl http://localhost:8000/health` returns `{"status":"ok"}`.
 - `curl -I http://localhost:3000` returns an HTTP response from Next.js.
 
@@ -224,7 +221,7 @@ docker logs possibilista-frontend
 - If the backend exits immediately, check for a missing or empty `DATABASE_URL`.
 - If the frontend image build fails because `frontend/Dockerfile` is missing or misnamed,
   use `./build_frontend_docker.sh` for the clearer preflight error.
-- If the frontend image build fails with "Couldn't find any `pages` or `app` directory",
-  add the Next.js app tree under `frontend/` before running the frontend container.
+- If API requests through the frontend fail, check that `BACKEND_INTERNAL_URL` points to
+  `http://backend:8000` for Compose builds.
 - If Docker reports that it cannot connect to the daemon, start Docker Desktop or the Docker
   service before rerunning Compose.

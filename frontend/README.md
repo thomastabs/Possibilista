@@ -20,10 +20,8 @@ FRONTEND_HOST_PORT=3001 docker compose up --build
 
 See the root `README.md` for the full environment variable table and verification steps.
 
-Note: this checkout currently has frontend package metadata and component tests, but no
-Next.js `app/` or `pages/` directory under `frontend/`. Until that app tree exists,
-`npm run build`, this Docker image, and the frontend Compose service will fail at the Next.js
-build step.
+The frontend uses Next.js App Router under `frontend/app` and proxies `/api/v1/*` requests
+to the backend through `frontend/next.config.ts`.
 
 ## Frontend-only Docker build
 

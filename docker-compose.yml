@@ -55,6 +55,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
     container_name: possibilista-frontend
     environment:
       # Browser requests to /api/v1 are handled by Next.js rewrites in frontend/next.config.ts.
