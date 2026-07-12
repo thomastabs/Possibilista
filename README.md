@@ -204,3 +204,39 @@ with `BACKEND_HOST_PORT`, the same pattern as `POSTGRES_HOST_PORT` above:
 ```bash
 BACKEND_HOST_PORT=8001 docker compose up
 ```
+
+## Verifying the Local Environment
+
+> **Prerequisite:** Docker must be installed and running — see [Prerequisites](#prerequisites)
+> above before continuing.
+
+Once both containers are started (`docker compose up`), confirm everything is working:
+
+1. **Check container status** — both containers should be `Up`, and `possibilista-postgres`
+   should show `(healthy)`:
+   ```bash
+   docker ps
+   ```
+2. **Check the backend is responding** — hit its health endpoint:
+   ```bash
+   curl http://localhost:8000/health
+   ```
+   This should return `{"status":"ok"}`. (Note: the route is `/health`, not `/api/health`.)
+3. **Check logs for errors** if either container isn't behaving as expected:
+   ```bash
+   docker logs possibilista-backend
+   docker logs possibilista-postgres
+   ```
+
+### Troubleshooting
+
+- **Port conflicts** — see [PostgreSQL Port Conflict Resolution](#postgresql-port-conflict-resolution)
+  above for `POSTGRES_HOST_PORT`, and [Backend Port Mapping](#backend-port-mapping) above for
+  `BACKEND_HOST_PORT`.
+- **Backend container exits immediately** — check `docker logs possibilista-backend` for a
+  `validate_required_environment_variables()` error; this means `DATABASE_URL` wasn't set
+  where the backend container expected it.
+- **Backend can't connect to the database** — confirm `possibilista-postgres` is `(healthy)`
+  via `docker ps` before assuming the backend is at fault; the backend won't even start until
+  that healthcheck passes, but a database that becomes unhealthy later (e.g. crashed) will
+  surface as connection errors in the backend's logs.
